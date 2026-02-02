@@ -23,6 +23,8 @@ import HashSHA1 from './tools/HashSHA1'
 import HashSHA256 from './tools/HashSHA256'
 import RegexTester from './tools/RegexTester'
 import SQLFormatter from './tools/SQLFormatter'
+import SQLValidator from './tools/SQLValidator'
+import SQLAnalyzer from './tools/SQLAnalyzer'
 import CaseConverter from './tools/CaseConverter'
 import TextCounter from './tools/TextCounter'
 import TextDiff from './tools/TextDiff'
@@ -52,6 +54,8 @@ interface ToolViewProps {
 
 const toolComponents: Record<ToolType, React.ComponentType> = {
   'sql-formatter': SQLFormatter,
+  'sql-validator': SQLValidator,
+  'sql-analyzer': SQLAnalyzer,
   'json-formatter': JSONFormatter,
   'json-minifier': JSONMinifier,
   'json-validator': JSONValidator,

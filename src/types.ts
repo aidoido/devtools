@@ -1,6 +1,8 @@
 export type ToolType =
   // SQL
   | 'sql-formatter'
+  | 'sql-validator'
+  | 'sql-analyzer'
   // JSON
   | 'json-formatter'
   | 'json-minifier'

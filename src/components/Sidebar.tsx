@@ -10,6 +10,8 @@ interface SidebarProps {
 const tools: Tool[] = [
   // SQL (Primary Feature) - Moved to top
   { id: 'sql-formatter', name: 'SQL Formatter', category: 'sql', description: 'Format and minify SQL queries' },
+  { id: 'sql-validator', name: 'SQL Validator', category: 'sql', description: 'Validate SQL syntax' },
+  { id: 'sql-analyzer', name: 'SQL Analyzer', category: 'sql', description: 'Analyze SQL structure' },
   
   // JSON Tools
   { id: 'json-formatter', name: 'JSON Formatter', category: 'json', description: 'Pretty print JSON' },

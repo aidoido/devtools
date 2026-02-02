@@ -9,6 +9,9 @@ export default function SQLFormatter() {
   const [uppercaseKeywords, setUppercaseKeywords] = useState(true)
   const [indentation, setIndentation] = useState<'2' | '4' | 'tab'>('2')
   const [minifyMode, setMinifyMode] = useState(false)
+  const [dialect, setDialect] = useState<'sql' | 'mysql' | 'postgresql' | 'mariadb' | 'sqlite' | 'mssql' | 'bigquery' | 'db2' | 'redshift' | 'plsql'>('sql')
+  const [removeComments, setRemoveComments] = useState(false)
+  const [linesBetweenQueries, setLinesBetweenQueries] = useState(2)
 
   useEffect(() => {
     if (!input.trim()) {
@@ -16,10 +19,19 @@ export default function SQLFormatter() {
       return
     }
     try {
+      let sqlToFormat = input
+      
+      // Remove comments if requested
+      if (removeComments) {
+        sqlToFormat = sqlToFormat
+          .replace(/--.*$/gm, '') // Remove single-line comments
+          .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
+      }
+      
       if (minifyMode) {
         // Minify by formatting with minimal whitespace and then removing extra spaces
-        const formatted = formatSQL(input, {
-          language: 'sql',
+        const formatted = formatSQL(sqlToFormat, {
+          language: dialect,
           tabWidth: 0,
           useTabs: false,
           keywordCase: uppercaseKeywords ? 'upper' : 'lower',
@@ -36,12 +48,12 @@ export default function SQLFormatter() {
 
         setOutput(minified)
       } else {
-        const formatted = formatSQL(input, {
-          language: 'sql',
+        const formatted = formatSQL(sqlToFormat, {
+          language: dialect,
           tabWidth: indentation === 'tab' ? 1 : parseInt(indentation),
           useTabs: indentation === 'tab',
           keywordCase: uppercaseKeywords ? 'upper' : 'lower',
-          linesBetweenQueries: 2,
+          linesBetweenQueries: linesBetweenQueries,
           indentStyle: 'standard',
         })
         setOutput(formatted)
@@ -50,7 +62,7 @@ export default function SQLFormatter() {
       const message = error instanceof Error ? error.message : 'Formatting error'
       setOutput(`Error: ${message}`)
     }
-  }, [input, uppercaseKeywords, indentation, minifyMode])
+  }, [input, uppercaseKeywords, indentation, minifyMode, dialect, removeComments, linesBetweenQueries])
 
   const copy = () => {
     if (!output) {
@@ -90,40 +102,88 @@ export default function SQLFormatter() {
           </div>
         </div>
         
-        <div className="flex items-center gap-6">
-          <label className="flex items-center gap-2 text-xs text-white/80">
-            <input
-              type="checkbox"
-              checked={minifyMode}
-              onChange={(e) => setMinifyMode(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-white/20 bg-black text-white focus:ring-1 focus:ring-white"
-            />
-            Minify
-          </label>
-          <label className="flex items-center gap-2 text-xs text-white/80">
-            <input
-              type="checkbox"
-              checked={uppercaseKeywords}
-              onChange={(e) => setUppercaseKeywords(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-white/20 bg-black text-white focus:ring-1 focus:ring-white"
-            />
-            Uppercase Keywords
-          </label>
-          
-          {!minifyMode && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-6 flex-wrap">
             <label className="flex items-center gap-2 text-xs text-white/80">
-              <span>Indentation:</span>
+              <input
+                type="checkbox"
+                checked={minifyMode}
+                onChange={(e) => setMinifyMode(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-white/20 bg-black text-white focus:ring-1 focus:ring-white"
+              />
+              Minify
+            </label>
+            <label className="flex items-center gap-2 text-xs text-white/80">
+              <input
+                type="checkbox"
+                checked={uppercaseKeywords}
+                onChange={(e) => setUppercaseKeywords(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-white/20 bg-black text-white focus:ring-1 focus:ring-white"
+              />
+              Uppercase Keywords
+            </label>
+            <label className="flex items-center gap-2 text-xs text-white/80">
+              <input
+                type="checkbox"
+                checked={removeComments}
+                onChange={(e) => setRemoveComments(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-white/20 bg-black text-white focus:ring-1 focus:ring-white"
+              />
+              Remove Comments
+            </label>
+          </div>
+          
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 text-xs text-white/80">
+              <span>Dialect:</span>
               <select
-                value={indentation}
-                onChange={(e) => setIndentation(e.target.value as '2' | '4' | 'tab')}
+                value={dialect}
+                onChange={(e) => setDialect(e.target.value as any)}
                 className="px-2 py-1 bg-black text-white rounded border border-white/10 text-xs focus:outline-none focus:border-white/30"
               >
-                <option value="2">2 Spaces</option>
-                <option value="4">4 Spaces</option>
-                <option value="tab">Tabs</option>
+                <option value="sql">Standard SQL</option>
+                <option value="mysql">MySQL</option>
+                <option value="postgresql">PostgreSQL</option>
+                <option value="mariadb">MariaDB</option>
+                <option value="sqlite">SQLite</option>
+                <option value="mssql">SQL Server</option>
+                <option value="bigquery">BigQuery</option>
+                <option value="db2">DB2</option>
+                <option value="redshift">Redshift</option>
+                <option value="plsql">PL/SQL</option>
               </select>
             </label>
-          )}
+            
+            {!minifyMode && (
+              <>
+                <label className="flex items-center gap-2 text-xs text-white/80">
+                  <span>Indentation:</span>
+                  <select
+                    value={indentation}
+                    onChange={(e) => setIndentation(e.target.value as '2' | '4' | 'tab')}
+                    className="px-2 py-1 bg-black text-white rounded border border-white/10 text-xs focus:outline-none focus:border-white/30"
+                  >
+                    <option value="2">2 Spaces</option>
+                    <option value="4">4 Spaces</option>
+                    <option value="tab">Tabs</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-xs text-white/80">
+                  <span>Lines Between Queries:</span>
+                  <select
+                    value={linesBetweenQueries}
+                    onChange={(e) => setLinesBetweenQueries(parseInt(e.target.value))}
+                    className="px-2 py-1 bg-black text-white rounded border border-white/10 text-xs focus:outline-none focus:border-white/30"
+                  >
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                  </select>
+                </label>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
