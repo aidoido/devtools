@@ -16,12 +16,15 @@ const tools: Tool[] = [
   { id: 'json-minifier', name: 'JSON Minifier', category: 'json', description: 'Minify JSON' },
   { id: 'json-validator', name: 'JSON Validator', category: 'json', description: 'Validate JSON syntax' },
   { id: 'json-diff', name: 'JSON Diff', category: 'json', description: 'Compare two JSON objects' },
+  { id: 'json-to-xml', name: 'JSON to XML', category: 'json', description: 'Convert JSON to XML' },
+  { id: 'json-to-yaml', name: 'JSON to YAML', category: 'json', description: 'Convert JSON to YAML' },
   
   // XML Tools
   { id: 'xml-formatter', name: 'XML Formatter', category: 'xml', description: 'Pretty print XML' },
   { id: 'xml-minifier', name: 'XML Minifier', category: 'xml', description: 'Minify XML' },
   { id: 'xml-validator', name: 'XML Validator', category: 'xml', description: 'Validate XML syntax' },
   { id: 'xpath-tester', name: 'XPath Tester', category: 'xml', description: 'Test XPath expressions' },
+  { id: 'xml-to-json', name: 'XML to JSON', category: 'xml', description: 'Convert XML to JSON' },
   
   // YAML Tools
   { id: 'yaml-formatter', name: 'YAML Formatter', category: 'yaml', description: 'Pretty print YAML' },
@@ -41,6 +44,40 @@ const tools: Tool[] = [
   
   // Regex
   { id: 'regex-tester', name: 'Regex Tester', category: 'regex', description: 'Test regular expressions' },
+  
+  // Text Utilities
+  { id: 'case-converter', name: 'Case Converter', category: 'text', description: 'Convert text case styles' },
+  { id: 'text-counter', name: 'Text Counter', category: 'text', description: 'Count characters, words, lines' },
+  { id: 'text-diff', name: 'Text Diff', category: 'text', description: 'Compare two text blocks' },
+  { id: 'text-sort', name: 'Sort Lines', category: 'text', description: 'Sort lines alphabetically' },
+  { id: 'text-reverse', name: 'Reverse Text', category: 'text', description: 'Reverse text, lines, or words' },
+  { id: 'remove-duplicates', name: 'Remove Duplicates', category: 'text', description: 'Remove duplicate lines' },
+  { id: 'escape-unescape', name: 'Escape/Unescape', category: 'text', description: 'Escape or unescape text' },
+  
+  // Converters
+  { id: 'number-base-converter', name: 'Number Base Converter', category: 'converters', description: 'Convert between number bases' },
+  { id: 'color-converter', name: 'Color Converter', category: 'converters', description: 'Convert color formats' },
+  { id: 'csv-to-json', name: 'CSV to JSON', category: 'converters', description: 'Convert CSV to JSON' },
+  
+  // Date & Time
+  { id: 'timestamp-converter', name: 'Timestamp Converter', category: 'date', description: 'Convert timestamps to dates' },
+  { id: 'date-calculator', name: 'Date Calculator', category: 'date', description: 'Calculate date differences' },
+  { id: 'timezone-converter', name: 'Timezone Converter', category: 'date', description: 'Convert between timezones' },
+  
+  // Generators
+  { id: 'uuid-generator', name: 'UUID Generator', category: 'generators', description: 'Generate UUIDs' },
+  { id: 'password-generator', name: 'Password Generator', category: 'generators', description: 'Generate secure passwords' },
+  
+  // Validators
+  { id: 'email-validator', name: 'Email Validator', category: 'validators', description: 'Validate email addresses' },
+  { id: 'phone-validator', name: 'Phone Validator', category: 'validators', description: 'Validate phone numbers' },
+  { id: 'credit-card-validator', name: 'Credit Card Validator', category: 'validators', description: 'Validate credit cards' },
+  
+  // Code Tools
+  { id: 'code-minifier', name: 'Code Minifier', category: 'code', description: 'Minify JS/CSS/HTML' },
+  { id: 'code-beautifier', name: 'Code Beautifier', category: 'code', description: 'Beautify JS/CSS/HTML' },
+  { id: 'jwt-decoder', name: 'JWT Decoder', category: 'code', description: 'Decode JWT tokens' },
+  { id: 'query-string-parser', name: 'Query String Parser', category: 'code', description: 'Parse or build query strings' },
 ]
 
 const categories = [
@@ -51,6 +88,12 @@ const categories = [
   { id: 'encoding', name: 'Encoding' },
   { id: 'hashing', name: 'Hashing' },
   { id: 'regex', name: 'Regex' },
+  { id: 'text', name: 'Text Utilities' },
+  { id: 'converters', name: 'Converters' },
+  { id: 'date', name: 'Date & Time' },
+  { id: 'generators', name: 'Generators' },
+  { id: 'validators', name: 'Validators' },
+  { id: 'code', name: 'Code Tools' },
 ]
 
 export default function Sidebar({ activeTool, onToolChange, isOpen, onToggle }: SidebarProps) {
