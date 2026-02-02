@@ -6,7 +6,6 @@ export default function NumberBaseConverter() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
   const [fromBase, setFromBase] = useState<number>(10)
-  const [toBase, setToBase] = useState<number>(16)
 
   useEffect(() => {
     if (!input.trim()) {
@@ -31,7 +30,7 @@ export default function NumberBaseConverter() {
     } catch (error) {
       setOutput(`Error: ${error instanceof Error ? error.message : 'Conversion failed'}`)
     }
-  }, [input, fromBase, toBase])
+  }, [input, fromBase])
 
   return (
     <ToolLayout
