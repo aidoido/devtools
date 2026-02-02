@@ -30,7 +30,7 @@ export default function XPathTester() {
         toast.success('XPath evaluation successful')
       } else {
         setOutput('No matches found for the XPath expression')
-        toast.info('No matches found')
+        toast('No matches found', { icon: 'ℹ️' })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error'

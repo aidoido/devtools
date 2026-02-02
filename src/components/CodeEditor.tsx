@@ -17,26 +17,33 @@ export default function CodeEditor({
   onChange,
   language = 'plaintext',
   readOnly = false,
+  onKeyDown,
   height = '100%',
 }: CodeEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  const onKeyDownRef = useRef(onKeyDown)
+
+  // Keep ref updated
+  useEffect(() => {
+    onKeyDownRef.current = onKeyDown
+  }, [onKeyDown])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (onKeyDown) {
-        onKeyDown(e)
+      if (onKeyDownRef.current) {
+        onKeyDownRef.current(e)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onKeyDown])
+  }, [])
 
   const handleEditorDidMount = (editorInstance: editor.IStandaloneCodeEditor) => {
     editorRef.current = editorInstance
     
     // Add keyboard shortcuts to Monaco Editor
-    if (onKeyDown) {
+    if (onKeyDownRef.current) {
       // Cmd/Ctrl + Enter
       editorInstance.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
@@ -46,7 +53,9 @@ export default function CodeEditor({
             ctrlKey: !navigator.platform.includes('Mac'),
             metaKey: navigator.platform.includes('Mac'),
           } as KeyboardEventInit)
-          onKeyDown(event as KeyboardEvent)
+          if (onKeyDownRef.current) {
+            onKeyDownRef.current(event as KeyboardEvent)
+          }
         }
       )
       
@@ -59,7 +68,9 @@ export default function CodeEditor({
             ctrlKey: !navigator.platform.includes('Mac'),
             metaKey: navigator.platform.includes('Mac'),
           } as KeyboardEventInit)
-          onKeyDown(event as KeyboardEvent)
+          if (onKeyDownRef.current) {
+            onKeyDownRef.current(event as KeyboardEvent)
+          }
         }
       )
     }

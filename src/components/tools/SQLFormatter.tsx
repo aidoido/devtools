@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import toast from 'react-hot-toast'
-import { format as formatSQL, compress as minifySQL } from 'sql-formatter'
+import { format as formatSQL } from 'sql-formatter'
 import CodeEditor from '../CodeEditor'
 
 export default function SQLFormatter() {
@@ -15,8 +15,6 @@ export default function SQLFormatter() {
         toast.error('Please enter SQL to format')
         return
       }
-
-      const indent = indentation === 'tab' ? '\t' : ' '.repeat(parseInt(indentation))
       
       const formatted = formatSQL(input, {
         language: 'sql',
@@ -43,7 +41,23 @@ export default function SQLFormatter() {
         return
       }
 
-      const minified = minifySQL(input)
+      // Minify by formatting with minimal whitespace and then removing extra spaces
+      const formatted = formatSQL(input, {
+        language: 'sql',
+        tabWidth: 0,
+        useTabs: false,
+        keywordCase: uppercaseKeywords ? 'upper' : 'lower',
+        linesBetweenQueries: 1,
+        indentStyle: 'standard',
+      })
+      
+      // Remove extra whitespace and newlines
+      const minified = formatted
+        .replace(/\s+/g, ' ')
+        .replace(/\s*([,;()])\s*/g, '$1')
+        .replace(/\s*([=<>!]+)\s*/g, ' $1 ')
+        .trim()
+
       setOutput(minified)
       toast.success('SQL minified successfully')
     } catch (error) {

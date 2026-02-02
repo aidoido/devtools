@@ -19,7 +19,6 @@ export default function RegexTester() {
         return
       }
 
-      const regex = new RegExp(pattern, flags)
       const matches = [...testString.matchAll(new RegExp(pattern, flags + 'g'))]
       
       const results: string[] = []
