@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import toast from 'react-hot-toast'
+import { useState, useEffect } from 'react'
 import CodeEditor from '../CodeEditor'
 
 export default function JSONDiff() {
@@ -7,12 +6,12 @@ export default function JSONDiff() {
   const [right, setRight] = useState('')
   const [diff, setDiff] = useState('')
 
-  const compare = () => {
+  useEffect(() => {
+    if (!left.trim() || !right.trim()) {
+      setDiff('')
+      return
+    }
     try {
-      if (!left.trim() || !right.trim()) {
-        toast.error('Please enter both JSON objects to compare')
-        return
-      }
       const leftParsed = JSON.parse(left)
       const rightParsed = JSON.parse(right)
       
@@ -24,7 +23,6 @@ export default function JSONDiff() {
       
       if (leftStr === rightStr) {
         setDiff('✓ Both JSON objects are identical')
-        toast.success('JSON objects are identical')
       } else {
         differences.push('✗ JSON objects are different\n')
         differences.push('Left JSON:')
@@ -33,31 +31,21 @@ export default function JSONDiff() {
         differences.push('Right JSON:')
         differences.push(rightStr)
         setDiff(differences.join('\n'))
-        toast.success('Comparison complete')
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid JSON'
-      toast.error(`Error: ${message}`)
       setDiff(`Error: ${message}`)
     }
-  }
+  }, [left, right])
 
   return (
     <div className="flex flex-col h-full">
       <div className="border-b border-gray-800 p-4 bg-gray-900">
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <h2 className="text-xl font-semibold text-white">JSON Diff</h2>
-            <p className="text-sm text-gray-400 mt-1">
-              Compare two JSON objects side-by-side
-            </p>
-          </div>
-          <button
-            onClick={compare}
-            className="px-4 py-2 bg-white text-black rounded-md hover:bg-gray-200 transition-colors text-sm font-medium"
-          >
-            Compare
-          </button>
+        <div className="mb-2">
+          <h2 className="text-xl font-semibold text-white">JSON Diff</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Compare two JSON objects side-by-side
+          </p>
         </div>
       </div>
 

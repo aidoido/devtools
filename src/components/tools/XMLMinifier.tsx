@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { XMLBuilder, XMLParser } from 'fast-xml-parser'
 import ToolLayout from '../ToolLayout'
@@ -7,12 +7,12 @@ export default function XMLMinifier() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
 
-  const minify = () => {
+  useEffect(() => {
+    if (!input.trim()) {
+      setOutput('')
+      return
+    }
     try {
-      if (!input.trim()) {
-        toast.error('Please enter XML to minify')
-        return
-      }
       const parser = new XMLParser({
         ignoreAttributes: false,
         preserveOrder: false,
@@ -25,13 +25,11 @@ export default function XMLMinifier() {
       const parsed = parser.parse(input)
       const minified = builder.build(parsed)
       setOutput(minified)
-      toast.success('XML minified successfully')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid XML'
-      toast.error(`Minify error: ${message}`)
       setOutput(`Error: ${message}`)
     }
-  }
+  }, [input])
 
   return (
     <ToolLayout
@@ -42,10 +40,11 @@ export default function XMLMinifier() {
       onInputChange={setInput}
       inputLanguage="xml"
       outputLanguage="xml"
-      onFormat={minify}
       onCopy={() => {
-        navigator.clipboard.writeText(output)
-        toast.success('Copied to clipboard')
+        if (output && !output.startsWith('Error:')) {
+          navigator.clipboard.writeText(output)
+          toast.success('Copied to clipboard')
+        }
       }}
     />
   )

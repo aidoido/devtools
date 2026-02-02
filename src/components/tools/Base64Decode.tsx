@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import ToolLayout from '../ToolLayout'
 
@@ -6,21 +6,19 @@ export default function Base64Decode() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
 
-  const decode = () => {
+  useEffect(() => {
+    if (!input.trim()) {
+      setOutput('')
+      return
+    }
     try {
-      if (!input.trim()) {
-        toast.error('Please enter Base64 to decode')
-        return
-      }
       const decoded = decodeURIComponent(escape(atob(input)))
       setOutput(decoded)
-      toast.success('Decoded successfully')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Decoding error'
-      toast.error(`Decoding failed: ${message}`)
       setOutput(`Error: ${message}`)
     }
-  }
+  }, [input])
 
   return (
     <ToolLayout
@@ -31,10 +29,11 @@ export default function Base64Decode() {
       onInputChange={setInput}
       inputLanguage="plaintext"
       outputLanguage="plaintext"
-      onFormat={decode}
       onCopy={() => {
-        navigator.clipboard.writeText(output)
-        toast.success('Copied to clipboard')
+        if (output && !output.startsWith('Error:')) {
+          navigator.clipboard.writeText(output)
+          toast.success('Copied to clipboard')
+        }
       }}
     />
   )

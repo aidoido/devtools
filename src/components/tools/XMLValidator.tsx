@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { XMLParser } from 'fast-xml-parser'
 import ToolLayout from '../ToolLayout'
@@ -7,25 +7,23 @@ export default function XMLValidator() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
 
-  const validate = () => {
+  useEffect(() => {
+    if (!input.trim()) {
+      setOutput('')
+      return
+    }
     try {
-      if (!input.trim()) {
-        toast.error('Please enter XML to validate')
-        return
-      }
       const parser = new XMLParser({
         ignoreAttributes: false,
         preserveOrder: false,
       })
       parser.parse(input)
       setOutput('✓ Valid XML\n\nThe XML is well-formed and valid.')
-      toast.success('XML is valid')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid XML'
       setOutput(`✗ Invalid XML\n\nError: ${message}`)
-      toast.error(`Validation failed: ${message}`)
     }
-  }
+  }, [input])
 
   return (
     <ToolLayout
@@ -36,10 +34,11 @@ export default function XMLValidator() {
       onInputChange={setInput}
       inputLanguage="xml"
       outputLanguage="plaintext"
-      onFormat={validate}
       onCopy={() => {
-        navigator.clipboard.writeText(output)
-        toast.success('Copied to clipboard')
+        if (output) {
+          navigator.clipboard.writeText(output)
+          toast.success('Copied to clipboard')
+        }
       }}
     />
   )

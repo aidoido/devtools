@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import ToolLayout from '../ToolLayout'
 
@@ -6,22 +6,20 @@ export default function JSONFormatter() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
 
-  const format = () => {
+  useEffect(() => {
+    if (!input.trim()) {
+      setOutput('')
+      return
+    }
     try {
-      if (!input.trim()) {
-        toast.error('Please enter JSON to format')
-        return
-      }
       const parsed = JSON.parse(input)
       const formatted = JSON.stringify(parsed, null, 2)
       setOutput(formatted)
-      toast.success('JSON formatted successfully')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid JSON'
-      toast.error(`Format error: ${message}`)
       setOutput(`Error: ${message}`)
     }
-  }
+  }, [input])
 
   return (
     <ToolLayout
@@ -32,10 +30,11 @@ export default function JSONFormatter() {
       onInputChange={setInput}
       inputLanguage="json"
       outputLanguage="json"
-      onFormat={format}
       onCopy={() => {
-        navigator.clipboard.writeText(output)
-        toast.success('Copied to clipboard')
+        if (output && !output.startsWith('Error:')) {
+          navigator.clipboard.writeText(output)
+          toast.success('Copied to clipboard')
+        }
       }}
     />
   )

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { XMLBuilder, XMLParser } from 'fast-xml-parser'
 import ToolLayout from '../ToolLayout'
@@ -7,12 +7,12 @@ export default function XMLFormatter() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
 
-  const format = () => {
+  useEffect(() => {
+    if (!input.trim()) {
+      setOutput('')
+      return
+    }
     try {
-      if (!input.trim()) {
-        toast.error('Please enter XML to format')
-        return
-      }
       const parser = new XMLParser({
         ignoreAttributes: false,
         preserveOrder: false,
@@ -26,13 +26,11 @@ export default function XMLFormatter() {
       const parsed = parser.parse(input)
       const formatted = builder.build(parsed)
       setOutput(formatted)
-      toast.success('XML formatted successfully')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid XML'
-      toast.error(`Format error: ${message}`)
       setOutput(`Error: ${message}`)
     }
-  }
+  }, [input])
 
   return (
     <ToolLayout
@@ -43,10 +41,11 @@ export default function XMLFormatter() {
       onInputChange={setInput}
       inputLanguage="xml"
       outputLanguage="xml"
-      onFormat={format}
       onCopy={() => {
-        navigator.clipboard.writeText(output)
-        toast.success('Copied to clipboard')
+        if (output && !output.startsWith('Error:')) {
+          navigator.clipboard.writeText(output)
+          toast.success('Copied to clipboard')
+        }
       }}
     />
   )

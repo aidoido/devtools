@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import ToolLayout from '../ToolLayout'
 
@@ -6,22 +6,20 @@ export default function JSONMinifier() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
 
-  const minify = () => {
+  useEffect(() => {
+    if (!input.trim()) {
+      setOutput('')
+      return
+    }
     try {
-      if (!input.trim()) {
-        toast.error('Please enter JSON to minify')
-        return
-      }
       const parsed = JSON.parse(input)
       const minified = JSON.stringify(parsed)
       setOutput(minified)
-      toast.success('JSON minified successfully')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid JSON'
-      toast.error(`Minify error: ${message}`)
       setOutput(`Error: ${message}`)
     }
-  }
+  }, [input])
 
   return (
     <ToolLayout
@@ -32,10 +30,11 @@ export default function JSONMinifier() {
       onInputChange={setInput}
       inputLanguage="json"
       outputLanguage="json"
-      onFormat={minify}
       onCopy={() => {
-        navigator.clipboard.writeText(output)
-        toast.success('Copied to clipboard')
+        if (output && !output.startsWith('Error:')) {
+          navigator.clipboard.writeText(output)
+          toast.success('Copied to clipboard')
+        }
       }}
     />
   )

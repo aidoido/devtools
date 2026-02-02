@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { format as formatSQL } from 'sql-formatter'
 import CodeEditor from '../CodeEditor'
@@ -8,64 +8,49 @@ export default function SQLFormatter() {
   const [output, setOutput] = useState('')
   const [uppercaseKeywords, setUppercaseKeywords] = useState(true)
   const [indentation, setIndentation] = useState<'2' | '4' | 'tab'>('2')
+  const [minifyMode, setMinifyMode] = useState(false)
 
-  const format = () => {
+  useEffect(() => {
+    if (!input.trim()) {
+      setOutput('')
+      return
+    }
     try {
-      if (!input.trim()) {
-        toast.error('Please enter SQL to format')
-        return
-      }
-      
-      const formatted = formatSQL(input, {
-        language: 'sql',
-        tabWidth: indentation === 'tab' ? 1 : parseInt(indentation),
-        useTabs: indentation === 'tab',
-        keywordCase: uppercaseKeywords ? 'upper' : 'lower',
-        linesBetweenQueries: 2,
-        indentStyle: 'standard',
-      })
+      if (minifyMode) {
+        // Minify by formatting with minimal whitespace and then removing extra spaces
+        const formatted = formatSQL(input, {
+          language: 'sql',
+          tabWidth: 0,
+          useTabs: false,
+          keywordCase: uppercaseKeywords ? 'upper' : 'lower',
+          linesBetweenQueries: 1,
+          indentStyle: 'standard',
+        })
+        
+        // Remove extra whitespace and newlines
+        const minified = formatted
+          .replace(/\s+/g, ' ')
+          .replace(/\s*([,;()])\s*/g, '$1')
+          .replace(/\s*([=<>!]+)\s*/g, ' $1 ')
+          .trim()
 
-      setOutput(formatted)
-      toast.success('SQL formatted successfully')
+        setOutput(minified)
+      } else {
+        const formatted = formatSQL(input, {
+          language: 'sql',
+          tabWidth: indentation === 'tab' ? 1 : parseInt(indentation),
+          useTabs: indentation === 'tab',
+          keywordCase: uppercaseKeywords ? 'upper' : 'lower',
+          linesBetweenQueries: 2,
+          indentStyle: 'standard',
+        })
+        setOutput(formatted)
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Formatting error'
-      toast.error(`Format error: ${message}`)
       setOutput(`Error: ${message}`)
     }
-  }
-
-  const minify = () => {
-    try {
-      if (!input.trim()) {
-        toast.error('Please enter SQL to minify')
-        return
-      }
-
-      // Minify by formatting with minimal whitespace and then removing extra spaces
-      const formatted = formatSQL(input, {
-        language: 'sql',
-        tabWidth: 0,
-        useTabs: false,
-        keywordCase: uppercaseKeywords ? 'upper' : 'lower',
-        linesBetweenQueries: 1,
-        indentStyle: 'standard',
-      })
-      
-      // Remove extra whitespace and newlines
-      const minified = formatted
-        .replace(/\s+/g, ' ')
-        .replace(/\s*([,;()])\s*/g, '$1')
-        .replace(/\s*([=<>!]+)\s*/g, ' $1 ')
-        .trim()
-
-      setOutput(minified)
-      toast.success('SQL minified successfully')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Minification error'
-      toast.error(`Minify error: ${message}`)
-      setOutput(`Error: ${message}`)
-    }
-  }
+  }, [input, uppercaseKeywords, indentation, minifyMode])
 
   const copy = () => {
     if (!output) {
@@ -77,11 +62,7 @@ export default function SQLFormatter() {
   }
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault()
-      format()
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'c' && output) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'c' && output && !output.startsWith('Error:')) {
       e.preventDefault()
       copy()
     }
@@ -98,19 +79,7 @@ export default function SQLFormatter() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={minify}
-              className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 transition-colors text-sm font-medium"
-            >
-              Minify SQL
-            </button>
-            <button
-              onClick={format}
-              className="px-4 py-2 bg-white text-black rounded-md hover:bg-gray-200 transition-colors text-sm font-medium"
-            >
-              Format SQL
-            </button>
-            {output && (
+            {output && !output.startsWith('Error:') && (
               <button
                 onClick={copy}
                 className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 transition-colors text-sm font-medium"
@@ -125,6 +94,15 @@ export default function SQLFormatter() {
           <label className="flex items-center gap-2 text-sm text-gray-400">
             <input
               type="checkbox"
+              checked={minifyMode}
+              onChange={(e) => setMinifyMode(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-white focus:ring-2 focus:ring-white"
+            />
+            Minify
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-400">
+            <input
+              type="checkbox"
               checked={uppercaseKeywords}
               onChange={(e) => setUppercaseKeywords(e.target.checked)}
               className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-white focus:ring-2 focus:ring-white"
@@ -132,23 +110,27 @@ export default function SQLFormatter() {
             Uppercase Keywords
           </label>
           
-          <label className="flex items-center gap-2 text-sm text-gray-400">
-            <span>Indentation:</span>
-            <select
-              value={indentation}
-              onChange={(e) => setIndentation(e.target.value as '2' | '4' | 'tab')}
-              className="px-3 py-1 bg-gray-800 text-white rounded-md border border-gray-700 text-sm"
-            >
-              <option value="2">2 Spaces</option>
-              <option value="4">4 Spaces</option>
-              <option value="tab">Tabs</option>
-            </select>
-          </label>
+          {!minifyMode && (
+            <label className="flex items-center gap-2 text-sm text-gray-400">
+              <span>Indentation:</span>
+              <select
+                value={indentation}
+                onChange={(e) => setIndentation(e.target.value as '2' | '4' | 'tab')}
+                className="px-3 py-1 bg-gray-800 text-white rounded-md border border-gray-700 text-sm"
+              >
+                <option value="2">2 Spaces</option>
+                <option value="4">4 Spaces</option>
+                <option value="tab">Tabs</option>
+              </select>
+            </label>
+          )}
         </div>
         
-        <div className="text-xs text-gray-500 mt-2">
-          Press Cmd/Ctrl + Enter to format • Press Cmd/Ctrl + C to copy output
-        </div>
+        {output && !output.startsWith('Error:') && (
+          <div className="text-xs text-gray-500 mt-2">
+            Press Cmd/Ctrl + C to copy output
+          </div>
+        )}
       </div>
 
       <div className="flex-1 flex gap-4 p-4 overflow-hidden">

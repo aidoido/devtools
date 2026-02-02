@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import ToolLayout from '../ToolLayout'
 
@@ -6,21 +6,19 @@ export default function Base64Encode() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
 
-  const encode = () => {
+  useEffect(() => {
+    if (!input.trim()) {
+      setOutput('')
+      return
+    }
     try {
-      if (!input.trim()) {
-        toast.error('Please enter text to encode')
-        return
-      }
       const encoded = btoa(unescape(encodeURIComponent(input)))
       setOutput(encoded)
-      toast.success('Encoded successfully')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Encoding error'
-      toast.error(`Encoding failed: ${message}`)
       setOutput(`Error: ${message}`)
     }
-  }
+  }, [input])
 
   return (
     <ToolLayout
@@ -31,10 +29,11 @@ export default function Base64Encode() {
       onInputChange={setInput}
       inputLanguage="plaintext"
       outputLanguage="plaintext"
-      onFormat={encode}
       onCopy={() => {
-        navigator.clipboard.writeText(output)
-        toast.success('Copied to clipboard')
+        if (output && !output.startsWith('Error:')) {
+          navigator.clipboard.writeText(output)
+          toast.success('Copied to clipboard')
+        }
       }}
     />
   )

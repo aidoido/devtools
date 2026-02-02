@@ -12,7 +12,6 @@ interface ToolLayoutProps {
   inputLanguage?: string
   outputLanguage?: string
   actions?: ReactNode
-  onFormat?: () => void
   onCopy?: () => void
   showOutput?: boolean
   outputReadOnly?: boolean
@@ -29,16 +28,11 @@ export default function ToolLayout({
   inputLanguage = 'plaintext',
   outputLanguage = 'plaintext',
   actions,
-  onFormat,
   onCopy,
   showOutput = true,
   outputReadOnly = true,
 }: ToolLayoutProps) {
   const handleKeyDown = (e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && onFormat) {
-      e.preventDefault()
-      onFormat()
-    }
     if ((e.metaKey || e.ctrlKey) && e.key === 'c' && onCopy && output) {
       e.preventDefault()
       onCopy()
@@ -57,14 +51,6 @@ export default function ToolLayout({
           </div>
           <div className="flex items-center gap-2">
             {actions}
-            {onFormat && (
-              <button
-                onClick={onFormat}
-                className="px-4 py-2 bg-white text-black rounded-md hover:bg-gray-200 transition-colors text-sm font-medium"
-              >
-                Format
-              </button>
-            )}
             {onCopy && output && (
               <button
                 onClick={onCopy}
@@ -75,10 +61,11 @@ export default function ToolLayout({
             )}
           </div>
         </div>
-        <div className="text-xs text-gray-500 mt-2">
-          {onFormat && 'Press Cmd/Ctrl + Enter to format'}
-          {onCopy && output && ' • Press Cmd/Ctrl + C to copy output'}
-        </div>
+        {onCopy && output && (
+          <div className="text-xs text-gray-500 mt-2">
+            Press Cmd/Ctrl + C to copy output
+          </div>
+        )}
       </div>
 
       <div className="flex-1 flex gap-4 p-4 overflow-hidden">

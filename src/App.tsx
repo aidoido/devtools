@@ -6,10 +6,16 @@ import { ToolType } from './types'
 
 function App() {
   const [activeTool, setActiveTool] = useState<ToolType>('json-formatter')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   return (
     <div className="flex h-screen bg-black text-white overflow-hidden">
-      <Sidebar activeTool={activeTool} onToolChange={setActiveTool} />
+      <Sidebar 
+        activeTool={activeTool} 
+        onToolChange={setActiveTool}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+      />
       <main className="flex-1 flex flex-col overflow-hidden">
         <ToolView tool={activeTool} />
       </main>

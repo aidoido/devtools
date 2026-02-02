@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import ToolLayout from '../ToolLayout'
 
@@ -6,25 +6,26 @@ export default function HashSHA256() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
 
-  const hash = async () => {
-    try {
+  useEffect(() => {
+    const hash = async () => {
       if (!input.trim()) {
-        toast.error('Please enter text to hash')
+        setOutput('')
         return
       }
-      const encoder = new TextEncoder()
-      const data = encoder.encode(input)
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-      const hashArray = Array.from(new Uint8Array(hashBuffer))
-      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-      setOutput(hashHex)
-      toast.success('Hash generated successfully')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Hashing error'
-      toast.error(`Hashing failed: ${message}`)
-      setOutput(`Error: ${message}`)
+      try {
+        const encoder = new TextEncoder()
+        const data = encoder.encode(input)
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+        setOutput(hashHex)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Hashing error'
+        setOutput(`Error: ${message}`)
+      }
     }
-  }
+    hash()
+  }, [input])
 
   return (
     <ToolLayout
@@ -35,10 +36,11 @@ export default function HashSHA256() {
       onInputChange={setInput}
       inputLanguage="plaintext"
       outputLanguage="plaintext"
-      onFormat={hash}
       onCopy={() => {
-        navigator.clipboard.writeText(output)
-        toast.success('Copied to clipboard')
+        if (output && !output.startsWith('Error:')) {
+          navigator.clipboard.writeText(output)
+          toast.success('Copied to clipboard')
+        }
       }}
     />
   )
