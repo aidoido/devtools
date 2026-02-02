@@ -5,7 +5,7 @@ import ToolView from './components/ToolView'
 import { ToolType } from './types'
 
 function App() {
-  const [activeTool, setActiveTool] = useState<ToolType>('json-formatter')
+  const [activeTool, setActiveTool] = useState<ToolType>('sql-formatter')
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   return (

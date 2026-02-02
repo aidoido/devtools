@@ -8,6 +8,9 @@ interface SidebarProps {
 }
 
 const tools: Tool[] = [
+  // SQL (Primary Feature) - Moved to top
+  { id: 'sql-formatter', name: 'SQL Formatter', category: 'sql', description: 'Format and minify SQL queries' },
+  
   // JSON Tools
   { id: 'json-formatter', name: 'JSON Formatter', category: 'json', description: 'Pretty print JSON' },
   { id: 'json-minifier', name: 'JSON Minifier', category: 'json', description: 'Minify JSON' },
@@ -38,19 +41,16 @@ const tools: Tool[] = [
   
   // Regex
   { id: 'regex-tester', name: 'Regex Tester', category: 'regex', description: 'Test regular expressions' },
-  
-  // SQL (Primary Feature)
-  { id: 'sql-formatter', name: 'SQL Formatter', category: 'sql', description: 'Format and minify SQL queries' },
 ]
 
 const categories = [
+  { id: 'sql', name: 'SQL Formatter' },
   { id: 'json', name: 'JSON Tools' },
   { id: 'xml', name: 'XML Tools' },
   { id: 'yaml', name: 'YAML Tools' },
   { id: 'encoding', name: 'Encoding' },
   { id: 'hashing', name: 'Hashing' },
   { id: 'regex', name: 'Regex' },
-  { id: 'sql', name: 'SQL Formatter' },
 ]
 
 export default function Sidebar({ activeTool, onToolChange, isOpen, onToggle }: SidebarProps) {
