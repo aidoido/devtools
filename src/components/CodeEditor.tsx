@@ -77,7 +77,7 @@ export default function CodeEditor({
   }
 
   return (
-    <div className="flex-1 border border-gray-800 rounded-lg overflow-hidden">
+    <div className="flex-1 border border-white/10 rounded overflow-hidden">
       <Editor
         height={height}
         language={language}
@@ -88,7 +88,7 @@ export default function CodeEditor({
         options={{
           readOnly,
           minimap: { enabled: false },
-          fontSize: 14,
+          fontSize: 13,
           lineNumbers: 'on',
           scrollBeyondLastLine: false,
           wordWrap: 'on',
@@ -96,6 +96,8 @@ export default function CodeEditor({
           tabSize: 2,
           formatOnPaste: true,
           formatOnType: true,
+          lineHeight: 20,
+          letterSpacing: 0.3,
         }}
       />
     </div>

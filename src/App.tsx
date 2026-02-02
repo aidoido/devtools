@@ -9,7 +9,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   return (
-    <div className="flex h-screen bg-black text-white overflow-hidden">
+    <div className="flex h-screen bg-black text-white overflow-hidden relative">
       <Sidebar 
         activeTool={activeTool} 
         onToolChange={setActiveTool}
@@ -23,20 +23,20 @@ function App() {
         position="top-right"
         toastOptions={{
           style: {
-            background: '#1a1a1a',
+            background: '#000',
             color: '#fff',
-            border: '1px solid #333',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
           },
           success: {
             iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
+              primary: '#fff',
+              secondary: '#000',
             },
           },
           error: {
             iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
+              primary: '#fff',
+              secondary: '#000',
             },
           },
         }}

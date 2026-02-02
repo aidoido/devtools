@@ -73,26 +73,26 @@ export default function XPathTester() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-gray-800 p-4 bg-gray-900">
-        <div className="flex items-center justify-between mb-2">
+      <div className="border-b border-white/10 px-6 py-4 bg-black">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">XPath Tester</h2>
-            <p className="text-sm text-gray-400 mt-1">
+            <h2 className="text-lg font-semibold text-white tracking-tight">XPath Tester</h2>
+            <p className="text-xs text-white/60 mt-1">
               Test XPath expressions against XML (basic implementation)
             </p>
           </div>
           <button
             onClick={test}
-            className="px-4 py-2 bg-white text-black rounded-md hover:bg-gray-200 transition-colors text-sm font-medium"
+            className="px-3 py-1.5 bg-white text-black rounded text-xs font-medium hover:bg-white/90 transition-colors"
           >
             Test XPath
           </button>
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col gap-4 p-4 overflow-hidden">
+      <div className="flex-1 flex flex-col gap-6 p-6 overflow-hidden">
         <div className="flex-1 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             XML Document
           </label>
           <CodeEditor
@@ -103,7 +103,7 @@ export default function XPathTester() {
           />
         </div>
         <div className="h-32 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             XPath Expression
           </label>
           <CodeEditor
@@ -115,7 +115,7 @@ export default function XPathTester() {
         </div>
         {output && (
           <div className="flex-1 flex flex-col">
-            <label className="text-sm font-medium text-gray-400 mb-2">
+            <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
               Result
             </label>
             <CodeEditor

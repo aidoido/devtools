@@ -70,11 +70,11 @@ export default function SQLFormatter() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-gray-800 p-4 bg-gray-900">
+      <div className="border-b border-white/10 px-6 py-4 bg-black">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-semibold text-white">SQL Formatter</h2>
-            <p className="text-sm text-gray-400 mt-1">
+            <h2 className="text-lg font-semibold text-white tracking-tight">SQL Formatter</h2>
+            <p className="text-xs text-white/60 mt-1">
               Format and minify SQL queries with customizable options
             </p>
           </div>
@@ -82,7 +82,7 @@ export default function SQLFormatter() {
             {output && !output.startsWith('Error:') && (
               <button
                 onClick={copy}
-                className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 transition-colors text-sm font-medium"
+                className="px-3 py-1.5 bg-white text-black rounded text-xs font-medium hover:bg-white/90 transition-colors"
               >
                 Copy
               </button>
@@ -90,33 +90,33 @@ export default function SQLFormatter() {
           </div>
         </div>
         
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-sm text-gray-400">
+        <div className="flex items-center gap-6">
+          <label className="flex items-center gap-2 text-xs text-white/80">
             <input
               type="checkbox"
               checked={minifyMode}
               onChange={(e) => setMinifyMode(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-white focus:ring-2 focus:ring-white"
+              className="w-3.5 h-3.5 rounded border-white/20 bg-black text-white focus:ring-1 focus:ring-white"
             />
             Minify
           </label>
-          <label className="flex items-center gap-2 text-sm text-gray-400">
+          <label className="flex items-center gap-2 text-xs text-white/80">
             <input
               type="checkbox"
               checked={uppercaseKeywords}
               onChange={(e) => setUppercaseKeywords(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-white focus:ring-2 focus:ring-white"
+              className="w-3.5 h-3.5 rounded border-white/20 bg-black text-white focus:ring-1 focus:ring-white"
             />
             Uppercase Keywords
           </label>
           
           {!minifyMode && (
-            <label className="flex items-center gap-2 text-sm text-gray-400">
+            <label className="flex items-center gap-2 text-xs text-white/80">
               <span>Indentation:</span>
               <select
                 value={indentation}
                 onChange={(e) => setIndentation(e.target.value as '2' | '4' | 'tab')}
-                className="px-3 py-1 bg-gray-800 text-white rounded-md border border-gray-700 text-sm"
+                className="px-2 py-1 bg-black text-white rounded border border-white/10 text-xs focus:outline-none focus:border-white/30"
               >
                 <option value="2">2 Spaces</option>
                 <option value="4">4 Spaces</option>
@@ -125,17 +125,11 @@ export default function SQLFormatter() {
             </label>
           )}
         </div>
-        
-        {output && !output.startsWith('Error:') && (
-          <div className="text-xs text-gray-500 mt-2">
-            Press Cmd/Ctrl + C to copy output
-          </div>
-        )}
       </div>
 
-      <div className="flex-1 flex gap-4 p-4 overflow-hidden">
+      <div className="flex-1 flex gap-6 p-6 overflow-hidden">
         <div className="flex-1 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             SQL Input
           </label>
           <CodeEditor
@@ -147,7 +141,7 @@ export default function SQLFormatter() {
           />
         </div>
         <div className="flex-1 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             Formatted Output
           </label>
           <CodeEditor

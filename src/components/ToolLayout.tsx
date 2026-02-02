@@ -41,36 +41,31 @@ export default function ToolLayout({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-gray-800 p-4 bg-gray-900">
-        <div className="flex items-center justify-between mb-2">
+      <div className="border-b border-white/10 px-6 py-4 bg-black">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">{title}</h2>
+            <h2 className="text-lg font-semibold text-white tracking-tight">{title}</h2>
             {description && (
-              <p className="text-sm text-gray-400 mt-1">{description}</p>
+              <p className="text-xs text-white/60 mt-1">{description}</p>
             )}
           </div>
           <div className="flex items-center gap-2">
             {actions}
-            {onCopy && output && (
+            {onCopy && output && !output.startsWith('Error:') && (
               <button
                 onClick={onCopy}
-                className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 transition-colors text-sm font-medium"
+                className="px-3 py-1.5 bg-white text-black rounded text-xs font-medium hover:bg-white/90 transition-colors"
               >
                 Copy
               </button>
             )}
           </div>
         </div>
-        {onCopy && output && (
-          <div className="text-xs text-gray-500 mt-2">
-            Press Cmd/Ctrl + C to copy output
-          </div>
-        )}
       </div>
 
-      <div className="flex-1 flex gap-4 p-4 overflow-hidden">
+      <div className="flex-1 flex gap-6 p-6 overflow-hidden">
         <div className="flex-1 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             {inputLabel}
           </label>
           <CodeEditor
@@ -83,7 +78,7 @@ export default function ToolLayout({
         </div>
         {showOutput && (
           <div className="flex-1 flex flex-col">
-            <label className="text-sm font-medium text-gray-400 mb-2">
+            <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
               {outputLabel}
             </label>
             <CodeEditor

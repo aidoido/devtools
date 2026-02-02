@@ -56,11 +56,11 @@ export default function RegexTester() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-gray-800 p-4 bg-gray-900">
-        <div className="flex items-center justify-between mb-2">
+      <div className="border-b border-white/10 px-6 py-4 bg-black">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">Regex Tester</h2>
-            <p className="text-sm text-gray-400 mt-1">
+            <h2 className="text-lg font-semibold text-white tracking-tight">Regex Tester</h2>
+            <p className="text-xs text-white/60 mt-1">
               Test regular expressions with match highlighting
             </p>
           </div>
@@ -68,7 +68,7 @@ export default function RegexTester() {
             <select
               value={flags}
               onChange={(e) => setFlags(e.target.value)}
-              className="px-3 py-2 bg-gray-800 text-white rounded-md border border-gray-700 text-sm"
+              className="px-2 py-1.5 bg-black text-white rounded border border-white/10 text-xs focus:outline-none focus:border-white/30"
             >
               <option value="g">Global (g)</option>
               <option value="gi">Global + Case-insensitive (gi)</option>
@@ -77,7 +77,7 @@ export default function RegexTester() {
             </select>
             <button
               onClick={test}
-              className="px-4 py-2 bg-white text-black rounded-md hover:bg-gray-200 transition-colors text-sm font-medium"
+              className="px-3 py-1.5 bg-white text-black rounded text-xs font-medium hover:bg-white/90 transition-colors"
             >
               Test
             </button>
@@ -85,9 +85,9 @@ export default function RegexTester() {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col gap-4 p-4 overflow-hidden">
+      <div className="flex-1 flex flex-col gap-6 p-6 overflow-hidden">
         <div className="h-24 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             Regex Pattern
           </label>
           <CodeEditor
@@ -98,7 +98,7 @@ export default function RegexTester() {
           />
         </div>
         <div className="flex-1 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             Test String
           </label>
           <CodeEditor
@@ -110,7 +110,7 @@ export default function RegexTester() {
         </div>
         {output && (
           <div className="h-64 flex flex-col">
-            <label className="text-sm font-medium text-gray-400 mb-2">
+            <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
               Match Results
             </label>
             <CodeEditor

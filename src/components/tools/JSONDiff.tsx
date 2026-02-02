@@ -40,18 +40,18 @@ export default function JSONDiff() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-gray-800 p-4 bg-gray-900">
-        <div className="mb-2">
-          <h2 className="text-xl font-semibold text-white">JSON Diff</h2>
-          <p className="text-sm text-gray-400 mt-1">
+      <div className="border-b border-white/10 px-6 py-4 bg-black">
+        <div>
+          <h2 className="text-lg font-semibold text-white tracking-tight">JSON Diff</h2>
+          <p className="text-xs text-white/60 mt-1">
             Compare two JSON objects side-by-side
           </p>
         </div>
       </div>
 
-      <div className="flex-1 flex gap-4 p-4 overflow-hidden">
+      <div className="flex-1 flex gap-6 p-6 overflow-hidden">
         <div className="flex-1 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             Left JSON
           </label>
           <CodeEditor
@@ -62,7 +62,7 @@ export default function JSONDiff() {
           />
         </div>
         <div className="flex-1 flex flex-col">
-          <label className="text-sm font-medium text-gray-400 mb-2">
+          <label className="text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">
             Right JSON
           </label>
           <CodeEditor
@@ -75,8 +75,8 @@ export default function JSONDiff() {
       </div>
 
       {diff && (
-        <div className="border-t border-gray-800 p-4 bg-gray-900">
-          <label className="text-sm font-medium text-gray-400 mb-2 block">
+        <div className="border-t border-white/10 px-6 py-4 bg-black">
+          <label className="text-xs font-medium text-white/60 mb-2 block uppercase tracking-wider">
             Comparison Result
           </label>
           <CodeEditor
