@@ -25,6 +25,7 @@ import RegexTester from './tools/RegexTester'
 import SQLFormatter from './tools/SQLFormatter'
 import SQLValidator from './tools/SQLValidator'
 import SQLAnalyzer from './tools/SQLAnalyzer'
+import SQLAdvancedAnalyzer from './tools/SQLAdvancedAnalyzer'
 import CaseConverter from './tools/CaseConverter'
 import TextCounter from './tools/TextCounter'
 import TextDiff from './tools/TextDiff'
@@ -56,6 +57,7 @@ const toolComponents: Record<ToolType, React.ComponentType> = {
   'sql-formatter': SQLFormatter,
   'sql-validator': SQLValidator,
   'sql-analyzer': SQLAnalyzer,
+  'sql-advanced-analyzer': SQLAdvancedAnalyzer,
   'json-formatter': JSONFormatter,
   'json-minifier': JSONMinifier,
   'json-validator': JSONValidator,

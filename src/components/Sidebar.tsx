@@ -12,6 +12,7 @@ const tools: Tool[] = [
   { id: 'sql-formatter', name: 'SQL Formatter', category: 'sql', description: 'Format and minify SQL queries' },
   { id: 'sql-validator', name: 'SQL Validator', category: 'sql', description: 'Validate SQL syntax' },
   { id: 'sql-analyzer', name: 'SQL Analyzer', category: 'sql', description: 'Analyze SQL structure' },
+  { id: 'sql-advanced-analyzer', name: 'SQL Advanced Analyzer', category: 'sql', description: 'Detailed table/column analysis with stats' },
   
   // JSON Tools
   { id: 'json-formatter', name: 'JSON Formatter', category: 'json', description: 'Pretty print JSON' },

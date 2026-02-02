@@ -3,6 +3,7 @@ export type ToolType =
   | 'sql-formatter'
   | 'sql-validator'
   | 'sql-analyzer'
+  | 'sql-advanced-analyzer'
   // JSON
   | 'json-formatter'
   | 'json-minifier'
