@@ -9,7 +9,7 @@ export default function SQLFormatter() {
   const [uppercaseKeywords, setUppercaseKeywords] = useState(true)
   const [indentation, setIndentation] = useState<'2' | '4' | 'tab'>('2')
   const [minifyMode, setMinifyMode] = useState(false)
-  const [dialect, setDialect] = useState<'sql' | 'mysql' | 'postgresql' | 'mariadb' | 'sqlite' | 'mssql' | 'bigquery' | 'db2' | 'redshift' | 'plsql'>('sql')
+  const [dialect, setDialect] = useState<string>('sql')
   const [removeComments, setRemoveComments] = useState(false)
   const [linesBetweenQueries, setLinesBetweenQueries] = useState(2)
 
@@ -31,7 +31,7 @@ export default function SQLFormatter() {
       if (minifyMode) {
         // Minify by formatting with minimal whitespace and then removing extra spaces
         const formatted = formatSQL(sqlToFormat, {
-          language: dialect,
+          language: dialect as any,
           tabWidth: 0,
           useTabs: false,
           keywordCase: uppercaseKeywords ? 'upper' : 'lower',
@@ -49,7 +49,7 @@ export default function SQLFormatter() {
         setOutput(minified)
       } else {
         const formatted = formatSQL(sqlToFormat, {
-          language: dialect,
+          language: dialect as any,
           tabWidth: indentation === 'tab' ? 1 : parseInt(indentation),
           useTabs: indentation === 'tab',
           keywordCase: uppercaseKeywords ? 'upper' : 'lower',
@@ -146,11 +146,12 @@ export default function SQLFormatter() {
                 <option value="postgresql">PostgreSQL</option>
                 <option value="mariadb">MariaDB</option>
                 <option value="sqlite">SQLite</option>
-                <option value="mssql">SQL Server</option>
                 <option value="bigquery">BigQuery</option>
                 <option value="db2">DB2</option>
                 <option value="redshift">Redshift</option>
                 <option value="plsql">PL/SQL</option>
+                <option value="spark">Spark SQL</option>
+                <option value="trino">Trino</option>
               </select>
             </label>
             
