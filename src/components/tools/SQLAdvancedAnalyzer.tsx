@@ -123,41 +123,154 @@ export default function SQLAdvancedAnalyzer() {
       // Extract columns from SELECT
       const selectMatch = sql.match(/\bSELECT\s+(.*?)\s+FROM/i)
       if (selectMatch) {
-        const selectClause = selectMatch[1]
-        const columnMatches = selectClause.split(',').map(col => col.trim())
+        const selectClause = selectMatch[1].trim()
         
-        columnMatches.forEach(col => {
-          if (col === '*' || col.toLowerCase().includes('count(*)') || col.toLowerCase().includes('sum(*)')) {
-            // Handle SELECT *
-            Array.from(tables.keys()).forEach(tableName => {
-              tables.get(tableName)!.columns.add('* (all columns)')
-            })
-          } else {
-            // Extract column name (remove functions, aliases, etc.)
-            const cleanCol = col
-              .replace(/\s+AS\s+\w+/i, '')
-              .replace(/^\w+\./, '')
-              .replace(/\(.*?\)/g, '')
-              .replace(/^`|`$/g, '')
-              .replace(/^"|"$/g, '')
-              .trim()
+        // Handle SELECT *
+        if (selectClause === '*') {
+          Array.from(tables.keys()).forEach(tableName => {
+            tables.get(tableName)!.columns.add('* (all columns)')
+          })
+        } else {
+          // Split columns by comma, handling nested parentheses
+          const columns: string[] = []
+          let current = ''
+          let depth = 0
+          let inString = false
+          let stringChar = ''
+          
+          for (let i = 0; i < selectClause.length; i++) {
+            const char = selectClause[i]
             
-            if (cleanCol && cleanCol !== '*') {
-              // Try to determine which table this column belongs to
-              const tablePrefixMatch = col.match(/^(\w+)\./)
-              if (tablePrefixMatch) {
-                const tablePrefix = tablePrefixMatch[1]
-                // Find table by name or alias
-                for (const [tableName, tableInfo] of tables.entries()) {
-                  if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
-                    tableInfo.columns.add(cleanCol.replace(/^\w+\./, ''))
-                    break
-                  }
+            if ((char === '"' || char === "'" || char === '`') && (i === 0 || selectClause[i - 1] !== '\\')) {
+              if (!inString) {
+                inString = true
+                stringChar = char
+              } else if (char === stringChar) {
+                inString = false
+              }
+            } else if (!inString) {
+              if (char === '(') depth++
+              else if (char === ')') depth--
+              else if (char === ',' && depth === 0) {
+                columns.push(current.trim())
+                current = ''
+                continue
+              }
+            }
+            
+            current += char
+          }
+          if (current.trim()) columns.push(current.trim())
+          
+          // Process each column
+          columns.forEach(col => {
+            const trimmed = col.trim()
+            
+            // Handle SELECT table.*
+            if (trimmed.endsWith('.*')) {
+              const tablePrefix = trimmed.replace(/\.\*$/, '')
+              for (const [tableName, tableInfo] of tables.entries()) {
+                if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
+                  tableInfo.columns.add('* (all columns)')
                 }
-              } else {
-                // Column without table prefix - add to all tables (ambiguous)
+              }
+              return
+            }
+            
+            // Handle plain *
+            if (trimmed === '*') {
+              Array.from(tables.keys()).forEach(tableName => {
+                tables.get(tableName)!.columns.add('* (all columns)')
+              })
+              return
+            }
+            
+            // Remove AS alias
+            const withoutAlias = trimmed.replace(/\s+AS\s+\w+/i, '').replace(/\s+\w+$/, '')
+            
+            // Extract table.column pattern
+            const tableDotCol = withoutAlias.match(/(\w+)\.(\w+)/)
+            if (tableDotCol) {
+              const tablePrefix = tableDotCol[1]
+              const columnName = tableDotCol[2]
+              
+              // Find matching table
+              for (const [tableName, tableInfo] of tables.entries()) {
+                if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
+                  tableInfo.columns.add(columnName)
+                  break
+                }
+              }
+            } else {
+              // Column without table prefix - extract column name
+              // Remove function calls and extract the column
+              const cleanCol = withoutAlias
+                .replace(/^\w+\s*\(/, '') // Remove function name
+                .replace(/\)$/, '') // Remove closing paren
+                .replace(/^`|`$/g, '') // Remove backticks
+                .replace(/^"|"$/g, '') // Remove quotes
+                .replace(/^'|'$/g, '') // Remove single quotes
+                .trim()
+              
+              // Extract simple column name (word characters only)
+              const colMatch = cleanCol.match(/^([a-zA-Z_][a-zA-Z0-9_]*)$/)
+              if (colMatch) {
+                const colName = colMatch[1]
+                // Skip SQL keywords
+                if (!/^(COUNT|SUM|AVG|MAX|MIN|DISTINCT|CASE|WHEN|THEN|ELSE|END|AS|SELECT|FROM|WHERE)$/i.test(colName)) {
+                  // Add to all tables (ambiguous)
+                  Array.from(tables.values()).forEach(table => {
+                    table.columns.add(colName)
+                  })
+                }
+              }
+            }
+          })
+        }
+      }
+      
+      // Extract columns from WHERE clause
+      const whereMatch = sql.match(/\bWHERE\s+(.*?)(?:\bGROUP|\bORDER|\bHAVING|LIMIT|$)/i)
+      if (whereMatch) {
+        const whereClause = whereMatch[1]
+        
+        // Extract column references with table prefix (e.g., u.id, users.name)
+        const tableColumnRefs = whereClause.match(/(\w+)\.(\w+)/g) || []
+        tableColumnRefs.forEach(ref => {
+          const parts = ref.split('.')
+          if (parts.length === 2) {
+            const [tablePrefix, columnName] = parts
+            for (const [tableName, tableInfo] of tables.entries()) {
+              if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
+                tableInfo.columns.add(columnName)
+                tableInfo.conditions++
+              }
+            }
+          }
+        })
+        
+        // Extract columns without table prefix (e.g., status = 'active', id IN (...))
+        // Match patterns like: column =, column >, column <, column IN, column LIKE, etc.
+        const columnPatterns = [
+          /\b([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+/g,  // column =, >, <, !=
+          /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+IN\s*\(/gi,  // column IN (
+          /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+LIKE\s+/gi,  // column LIKE
+          /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+BETWEEN\s+/gi,  // column BETWEEN
+          /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+IS\s+(?:NOT\s+)?NULL/gi,  // column IS NULL
+        ]
+        
+        const foundColumns = new Set<string>()
+        columnPatterns.forEach(pattern => {
+          let match
+          while ((match = pattern.exec(whereClause)) !== null) {
+            const colName = match[1]
+            if (colName && !foundColumns.has(colName.toLowerCase())) {
+              foundColumns.add(colName.toLowerCase())
+              if (!/^(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|EXISTS|SELECT|FROM|WHERE)$/i.test(colName)) {
+                // Add to all tables (ambiguous)
                 Array.from(tables.values()).forEach(table => {
-                  table.columns.add(cleanCol)
+                  table.columns.add(colName)
+                  table.conditions++
                 })
               }
             }
@@ -165,55 +278,22 @@ export default function SQLAdvancedAnalyzer() {
         })
       }
       
-      // Extract columns from WHERE clause
-      const whereMatch = sql.match(/\bWHERE\s+(.*?)(?:\bGROUP|\bORDER|\bHAVING|$)/i)
-      if (whereMatch) {
-        const whereClause = whereMatch[1]
-        
-        // Count conditions (AND, OR)
-        const andCount = (whereClause.match(/\bAND\b/gi) || []).length
-        const orCount = (whereClause.match(/\bOR\b/gi) || []).length
-        const totalConditions = andCount + orCount + 1 // +1 for the base condition
-        
-        // Extract column references in WHERE
-        const columnRefs = whereClause.match(/(\w+)\.(\w+)/g) || []
-        columnRefs.forEach(ref => {
-          const [tablePrefix, columnName] = ref.split('.')
-          for (const [tableName, tableInfo] of tables.entries()) {
-            if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
-              tableInfo.columns.add(columnName)
-              tableInfo.conditions++
-            }
-          }
-        })
-        
-        // Also count conditions without table prefix
-        const conditionsWithoutPrefix = whereClause.match(/\b(\w+)\s*[=<>!]+/g) || []
-        conditionsWithoutPrefix.forEach(cond => {
-          const colName = cond.match(/^(\w+)/)?.[1]
-          if (colName && !/^(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL)$/i.test(colName)) {
-            Array.from(tables.values()).forEach(table => {
-              table.columns.add(colName)
-              table.conditions++
-            })
-          }
-        })
-      }
-      
       // Extract columns from JOIN ON conditions
-      const joinOnMatches = sql.match(/\bJOIN\s+[\w.]+\s+ON\s+([^JOIN]+?)(?:\bJOIN|\bWHERE|\bGROUP|\bORDER|$)/gi)
-      if (joinOnMatches) {
-        joinOnMatches.forEach(match => {
-          const onClause = match.replace(/.*ON\s+/i, '').trim()
-          const columnRefs = onClause.match(/(\w+)\.(\w+)/g) || []
-          columnRefs.forEach(ref => {
-            const [tablePrefix, columnName] = ref.split('.')
+      const joinOnPattern = /\b(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+[\w.]+\s+ON\s+([^JOIN]+?)(?=\b(?:JOIN|WHERE|GROUP|ORDER|HAVING|LIMIT|$))/gi
+      let joinOnMatch
+      while ((joinOnMatch = joinOnPattern.exec(sql)) !== null) {
+        const onClause = joinOnMatch[1]
+        const columnRefs = onClause.match(/(\w+)\.(\w+)/g) || []
+        columnRefs.forEach(ref => {
+          const parts = ref.split('.')
+          if (parts.length === 2) {
+            const [tablePrefix, columnName] = parts
             for (const [tableName, tableInfo] of tables.entries()) {
               if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
                 tableInfo.columns.add(columnName)
               }
             }
-          })
+          }
         })
       }
       
