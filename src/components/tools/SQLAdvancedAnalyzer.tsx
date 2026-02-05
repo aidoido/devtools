@@ -27,7 +27,6 @@ interface IndexSuggestion {
 export default function SQLAdvancedAnalyzer() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
-  const [isExplainPlan, setIsExplainPlan] = useState(false)
 
   useEffect(() => {
     if (!input.trim()) {
@@ -40,12 +39,10 @@ export default function SQLAdvancedAnalyzer() {
       
       // Check if input is EXPLAIN PLAN output
       if (sql.match(/^\s*PLAN\s+TABLE\s+OUTPUT/i) || sql.match(/^\s*\|/)) {
-        setIsExplainPlan(true)
         analyzeExplainPlan(sql)
         return
       }
       
-      setIsExplainPlan(false)
       analyzeOracleSQL(sql)
     } catch (error) {
       setOutput(`Error: ${error instanceof Error ? error.message : 'Analysis failed'}`)
@@ -141,9 +138,6 @@ export default function SQLAdvancedAnalyzer() {
     const issues: Issue[] = []
     const indexSuggestions: IndexSuggestion[] = []
     const tables = new Map<string, TableInfo>()
-    
-    // Normalize SQL for analysis
-    const normalizedSQL = sql.replace(/\s+/g, ' ').trim()
     
     results.push('═══════════════════════════════════════')
     results.push('  ORACLE SQL ADVANCED ANALYZER')
