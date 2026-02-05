@@ -139,16 +139,7 @@ export default function SQLAdvancedAnalyzer() {
     const indexSuggestions: IndexSuggestion[] = []
     const tables = new Map<string, TableInfo>()
     
-    results.push('═══════════════════════════════════════')
-    results.push('  ORACLE SQL ADVANCED ANALYZER')
-    results.push('═══════════════════════════════════════')
-    results.push('')
-    
-    // ========== A. SQL PARSING & STRUCTURE ANALYSIS ==========
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('A. STRUCTURE ANALYSIS')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    
+    // ========== EXTRACT ALL DATA FIRST ==========
     // Extract tables
     const fromMatches = sql.match(/\bFROM\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?/gi)
     if (fromMatches) {
@@ -322,13 +313,70 @@ export default function SQLAdvancedAnalyzer() {
       })
     }
     
-    // Complexity score
+    // Calculate complexity score
     let complexityScore = 1
     complexityScore += Math.min(tables.size, 5) * 0.5
     complexityScore += Math.min(joinCount, 5) * 0.3
     complexityScore += Math.min(subqueryCount, 3) * 0.5
     complexityScore += cteCount * 0.2
     complexityScore = Math.min(Math.round(complexityScore * 10) / 10, 10)
+    
+    // ========== BUILD OUTPUT - START WITH TABLES & COLUMNS ==========
+    results.push('═══════════════════════════════════════')
+    results.push('  ORACLE SQL ADVANCED ANALYZER')
+    results.push('═══════════════════════════════════════')
+    results.push('')
+    
+    // ========== TABLES & COLUMNS SUMMARY (AT TOP) ==========
+    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    results.push('TABLES & COLUMNS SUMMARY')
+    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    results.push('')
+    
+    if (tables.size === 0) {
+      results.push('No tables detected in SQL query.')
+      results.push('')
+    } else {
+      // All tables used
+      results.push(`TABLES USED (${tables.size}):`)
+      let tableIdx = 1
+      for (const [tableName, tableInfo] of tables.entries()) {
+        results.push(`  ${tableIdx}. ${tableName}${tableInfo.alias ? ` (alias: ${tableInfo.alias})` : ''}`)
+        tableIdx++
+      }
+      results.push('')
+      
+      // All columns used (grouped by table)
+      results.push('COLUMNS USED BY TABLE:')
+      for (const [tableName, tableInfo] of tables.entries()) {
+        if (tableInfo.columns.size > 0) {
+          const cols = Array.from(tableInfo.columns).sort()
+          results.push(`  ${tableName}${tableInfo.alias ? ` (${tableInfo.alias})` : ''}:`)
+          results.push(`    ${cols.join(', ')}`)
+          results.push(`    Total: ${tableInfo.columns.size} columns`)
+        } else {
+          results.push(`  ${tableName}${tableInfo.alias ? ` (${tableInfo.alias})` : ''}: (no columns explicitly referenced)`)
+        }
+        results.push('')
+      }
+      
+      // All unique columns (flattened list)
+      const allColumns = new Set<string>()
+      tables.forEach(tableInfo => {
+        tableInfo.columns.forEach(col => allColumns.add(col))
+      })
+      if (allColumns.size > 0) {
+        results.push(`ALL COLUMNS REFERENCED (${allColumns.size} unique):`)
+        const sortedCols = Array.from(allColumns).sort()
+        results.push(`  ${sortedCols.join(', ')}`)
+        results.push('')
+      }
+    }
+    
+    // ========== A. SQL PARSING & STRUCTURE ANALYSIS ==========
+    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    results.push('A. STRUCTURE ANALYSIS')
+    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     
     results.push(`Tables: ${tables.size}`)
     results.push(`JOINs: ${joinCount} (INNER: ${innerJoinCount}, LEFT: ${leftJoinCount})`)
@@ -338,7 +386,7 @@ export default function SQLAdvancedAnalyzer() {
     results.push(`Complexity Score: ${complexityScore}/10`)
     results.push('')
     
-    // Table details
+    // Detailed table information
     if (tables.size > 0) {
       results.push('TABLE DETAILS:')
       let idx = 1
