@@ -2,26 +2,27 @@ import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import ToolLayout from '../ToolLayout'
 
-interface TableInfo {
-  name: string
-  alias?: string
-  columns: Set<string>
-  conditions: number
-  joins: number
-  usage: string[]
+/** Oracle SQL keywords to exclude from column/operand extraction */
+const SQL_KEYWORDS = new Set([
+  'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'ON', 'AND', 'OR', 'NOT',
+  'GROUP', 'BY', 'HAVING', 'ORDER', 'ASC', 'DESC', 'NULLS', 'FIRST', 'LAST', 'FETCH', 'ROWS', 'ONLY',
+  'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'IS', 'NULL', 'AS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+  'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'DISTINCT', 'WITH', 'UNION', 'ALL', 'INSERT', 'UPDATE', 'DELETE',
+  'VALUES', 'SET', 'INTO', 'ROWNUM', 'OVER', 'PARTITION', 'RANGE', 'ROWS', 'PRECEDING', 'FOLLOWING'
+])
+
+interface ParsedCondition {
+  left: string
+  operator: string
+  right: string
+  type: 'FILTER' | 'JOIN'
 }
 
-interface Issue {
-  type: 'warning' | 'error' | 'info' | 'suggestion'
-  message: string
-  line?: number
-}
-
-interface IndexSuggestion {
-  table: string
-  columns: string[]
-  reason: string
-  type?: 'btree' | 'bitmap' | 'composite'
+interface ParsedJoin {
+  joinType: string
+  leftTable: string
+  rightTable: string
+  condition: string
 }
 
 export default function SQLAdvancedAnalyzer() {
@@ -33,773 +34,479 @@ export default function SQLAdvancedAnalyzer() {
       setOutput('')
       return
     }
-    
     try {
-      const sql = input.trim()
-      
-      // Check if input is EXPLAIN PLAN output
-      if (sql.match(/^\s*PLAN\s+TABLE\s+OUTPUT/i) || sql.match(/^\s*\|/)) {
-        analyzeExplainPlan(sql)
-        return
-      }
-      
-      analyzeOracleSQL(sql)
+      const sql = normalizeWhitespace(input.trim())
+      const result = analyzeOracleSQL(sql)
+      setOutput(result)
     } catch (error) {
       setOutput(`Error: ${error instanceof Error ? error.message : 'Analysis failed'}`)
     }
   }, [input])
 
-  function analyzeExplainPlan(plan: string) {
-    const results: string[] = []
-    results.push('═══════════════════════════════════════')
-    results.push('  ORACLE EXPLAIN PLAN ANALYSIS')
-    results.push('═══════════════════════════════════════')
-    results.push('')
-    
-    const lines = plan.split('\n')
-    const planSteps: Array<{ id: string, operation: string, name: string, cost?: string, rows?: string, depth: number }> = []
-    
-    lines.forEach(line => {
-      if (line.includes('|')) {
-        const parts = line.split('|').map(p => p.trim()).filter(p => p)
-        if (parts.length >= 3) {
-          const id = parts[0]
-          const operation = parts[1]
-          const name = parts[2]
-          const cost = parts.find(p => p.includes('Cost='))?.replace('Cost=', '') || parts[parts.length - 2]
-          const rows = parts.find(p => p.includes('Rows='))?.replace('Rows=', '') || parts[parts.length - 1]
-          
-          const depth = id.length - id.replace(/ /g, '').length
-          planSteps.push({ id, operation, name, cost, rows, depth })
-        }
-      }
-    })
-    
-    if (planSteps.length === 0) {
-      results.push('Could not parse EXPLAIN PLAN. Please paste Oracle EXPLAIN PLAN output.')
-      setOutput(results.join('\n'))
-      return
-    }
-    
-    // Render tree view
-    results.push('EXECUTION PLAN TREE:')
-    results.push('')
-    planSteps.forEach(step => {
-      const indent = '  '.repeat(step.depth)
-      results.push(`${indent}${step.operation.padEnd(20)} ${step.name}`)
-      if (step.cost) results.push(`${indent}  Cost: ${step.cost}`)
-      if (step.rows) results.push(`${indent}  Rows: ${step.rows}`)
-    })
-    
-    results.push('')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('PERFORMANCE ANALYSIS')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    
-    // Detect full table scans
-    const fullScans = planSteps.filter(s => 
-      s.operation.includes('TABLE ACCESS') && s.operation.includes('FULL')
-    )
-    if (fullScans.length > 0) {
-      results.push(`⚠️  FULL TABLE SCANS: ${fullScans.length}`)
-      fullScans.forEach(scan => {
-        results.push(`   - ${scan.name}`)
-      })
-      results.push('')
-    }
-    
-    // Detect high-cost operations
-    const highCost = planSteps.filter(s => {
-      const cost = parseFloat(s.cost || '0')
-      return cost > 1000
-    })
-    if (highCost.length > 0) {
-      results.push(`⚠️  HIGH-COST OPERATIONS (>1000): ${highCost.length}`)
-      highCost.forEach(op => {
-        results.push(`   - ${op.operation} on ${op.name} (Cost: ${op.cost})`)
-      })
-      results.push('')
-    }
-    
-    // Join methods
-    const hashJoins = planSteps.filter(s => s.operation.includes('HASH JOIN'))
-    const nestedLoops = planSteps.filter(s => s.operation.includes('NESTED LOOPS'))
-    const mergeJoins = planSteps.filter(s => s.operation.includes('MERGE JOIN'))
-    
-    if (hashJoins.length > 0) results.push(`HASH JOINs: ${hashJoins.length}`)
-    if (nestedLoops.length > 0) results.push(`NESTED LOOPS JOINs: ${nestedLoops.length}`)
-    if (mergeJoins.length > 0) results.push(`MERGE JOINs: ${mergeJoins.length}`)
-    
-    setOutput(results.join('\n'))
+  function normalizeWhitespace(s: string): string {
+    return s.replace(/\s+/g, ' ').trim()
   }
 
-  function analyzeOracleSQL(sql: string) {
-    const results: string[] = []
-    const issues: Issue[] = []
-    const indexSuggestions: IndexSuggestion[] = []
-    const tables = new Map<string, TableInfo>()
-    
-    // ========== EXTRACT ALL DATA FIRST ==========
-    // Extract tables
-    const fromMatches = sql.match(/\bFROM\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?/gi)
-    if (fromMatches) {
-      fromMatches.forEach(match => {
-        const parts = match.replace(/FROM\s+/i, '').trim().split(/\s+/)
-        const tableName = parts[0].replace(/^`|`$/g, '').replace(/^"|"$/g, '')
-        const alias = parts[1] && !/^(AS|JOIN|WHERE|GROUP|ORDER|HAVING)$/i.test(parts[1]) ? parts[1] : undefined
-        
-        if (!tables.has(tableName)) {
-          tables.set(tableName, {
-            name: tableName,
-            alias,
-            columns: new Set(),
-            conditions: 0,
-            joins: 0,
-            usage: ['FROM']
-          })
-        }
-      })
+  /** Get base table name from schema.table or table */
+  function baseTableName(ref: string): string {
+    const trimmed = ref.trim().replace(/^["`]|["`]$/g, '')
+    const parts = trimmed.split('.')
+    return parts.length > 1 ? parts[parts.length - 1] : trimmed
+  }
+
+  /** Check if token looks like a literal or bind (exclude from columns) */
+  function isLiteralOrBind(token: string): boolean {
+    if (!token) return true
+    const t = token.trim()
+    if (/^\d+(\.\d+)?$/.test(t)) return true
+    if (/^['"].*['"]$/.test(t)) return true
+    if (/^:\w+$/.test(t)) return true
+    if (SQL_KEYWORDS.has(t.toUpperCase())) return true
+    return false
+  }
+
+  /** Extract all table references (FROM + JOIN), unique by base name, with alias map */
+  function extractTables(sql: string): { tables: string[]; aliasToTable: Map<string, string> } {
+    const tables: string[] = []
+    const seen = new Set<string>()
+    const aliasToTable = new Map<string, string>()
+
+    // FROM clause: FROM table [alias] or FROM schema.table [alias]
+    const fromRegex = /\bFROM\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?(?=\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s*$)/gi
+    let m
+    while ((m = fromRegex.exec(sql)) !== null) {
+      const ref = m[1].trim()
+      const base = baseTableName(ref)
+      const alias = m[2] && !/^(JOIN|WHERE|GROUP|ORDER|HAVING|ON)$/i.test(m[2]) ? m[2] : null
+      if (!seen.has(base)) {
+        seen.add(base)
+        tables.push(base)
+      }
+      if (alias) aliasToTable.set(alias, base)
     }
-    
-    // Extract JOIN tables
-    const joinMatches = sql.match(/\b(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?/gi)
-    if (joinMatches) {
-      joinMatches.forEach(match => {
-        const parts = match.replace(/.*JOIN\s+/i, '').trim().split(/\s+/)
-        const tableName = parts[0].replace(/^`|`$/g, '').replace(/^"|"$/g, '')
-        const alias = parts[1] && !/^(ON|WHERE|GROUP|ORDER|HAVING)$/i.test(parts[1]) ? parts[1] : undefined
-        
-        if (!tables.has(tableName)) {
-          tables.set(tableName, {
-            name: tableName,
-            alias,
-            columns: new Set(),
-            conditions: 0,
-            joins: 1,
-            usage: ['JOIN']
-          })
-        } else {
-          const table = tables.get(tableName)!
-          table.joins++
-          if (!table.usage.includes('JOIN')) table.usage.push('JOIN')
-        }
-      })
+
+    // JOIN clauses: [type] JOIN table [alias]
+    const joinRegex = /\b(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?(?=\s+ON|\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s*$)/gi
+    while ((m = joinRegex.exec(sql)) !== null) {
+      const ref = m[1].trim()
+      const base = baseTableName(ref)
+      const alias = m[2] && !/^(ON|WHERE|GROUP|ORDER|HAVING)$/i.test(m[2]) ? m[2] : null
+      if (!seen.has(base)) {
+        seen.add(base)
+        tables.push(base)
+      }
+      if (alias) aliasToTable.set(alias, base)
     }
-    
-    // Count JOINs
-    const joinCount = (sql.match(/\bJOIN\b/gi) || []).length
-    const leftJoinCount = (sql.match(/\bLEFT\s+JOIN\b/gi) || []).length
-    const innerJoinCount = (sql.match(/\bINNER\s+JOIN\b/gi) || []).length
-    
-    // Detect old-style joins (+)
-    const oldStyleJoins = (sql.match(/\+/g) || []).length
-    if (oldStyleJoins > 0) {
-      issues.push({
-        type: 'warning',
-        message: `Old-style Oracle joins (+) detected: ${oldStyleJoins}. Consider converting to ANSI JOIN syntax.`
-      })
-    }
-    
-    // Subquery depth
-    const subqueryDepth = (sql.match(/\(\s*SELECT/gi) || []).length
-    const subqueryCount = subqueryDepth
-    
-    // CTE detection
-    const cteCount = (sql.match(/\bWITH\s+\w+\s+AS\s*\(/gi) || []).length
-    
-    // Inline views
-    const inlineViewCount = (sql.match(/\(\s*SELECT[^)]+\)\s+\w+/gi) || []).length
-    
-    // SELECT * usage
-    const selectStar = sql.match(/\bSELECT\s+\*/gi)
-    if (selectStar) {
-      issues.push({
-        type: 'warning',
-        message: 'SELECT * detected. Consider specifying columns explicitly for better performance and maintainability.'
-      })
-    }
-    
-    // Alias clarity (A, B, C)
-    const singleLetterAliases = sql.match(/\bFROM\s+[\w.]+\s+([A-Z])\b/gi)
-    if (singleLetterAliases && singleLetterAliases.length > 2) {
-      issues.push({
-        type: 'info',
-        message: `Single-letter aliases detected (${singleLetterAliases.length}). Consider using descriptive aliases.`
-      })
-    }
-    
-    // Extract columns from SELECT
-    const selectMatch = sql.match(/\bSELECT\s+(.*?)\s+FROM/i)
-    if (selectMatch) {
-      const selectClause = selectMatch[1].trim()
-      if (selectClause !== '*') {
-        const columns = parseColumns(selectClause)
-        columns.forEach(col => {
-          // Remove AS alias and function calls
-          const cleanCol = col.replace(/\s+AS\s+\w+/i, '').replace(/^\w+\s*\(/, '').replace(/\)$/, '').trim()
-          
-          const tableCol = cleanCol.match(/(\w+)\.(\w+)/)
-          if (tableCol) {
-            // Column with table prefix
-            const [tablePrefix, columnName] = [tableCol[1], tableCol[2]]
-            for (const [tableName, tableInfo] of tables.entries()) {
-              if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
-                tableInfo.columns.add(columnName)
-              }
+
+    // Old-style Oracle: FROM a, b WHERE a.x = b.y (+)  → tables from comma list
+    const fromCommaMatch = sql.match(/\bFROM\s+([^WHERE]+?)(?=\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s*$)/i)
+    if (fromCommaMatch) {
+      const list = fromCommaMatch[1]
+      if (list.includes(',')) {
+        const parts = splitTopLevel(list, ',')
+        parts.forEach(p => {
+          const ref = p.replace(/\s+(?:AS\s+)?\w+\s*$/, '').trim()
+          if (ref && !/^\s*\(/.test(ref)) {
+            const base = baseTableName(ref)
+            if (!seen.has(base)) {
+              seen.add(base)
+              tables.push(base)
             }
-          } else {
-            // Column without table prefix - extract column name
-            const colNameMatch = cleanCol.match(/^([a-zA-Z_][a-zA-Z0-9_]*)$/)
-            if (colNameMatch) {
-              const colName = colNameMatch[1]
-              // Skip SQL keywords
-              if (!/^(COUNT|SUM|AVG|MAX|MIN|DISTINCT|CASE|WHEN|THEN|ELSE|END|AS|SELECT|FROM|WHERE)$/i.test(colName)) {
-                // Add to all tables (or single table if only one)
-                if (tables.size === 1) {
-                  // Single table - add directly
-                  Array.from(tables.values())[0].columns.add(colName)
-                } else {
-                  // Multiple tables - add to all (ambiguous)
-                  Array.from(tables.values()).forEach(table => {
-                    table.columns.add(colName)
-                  })
-                }
-              }
-            }
+            const aliasMatch = p.trim().match(/\s+(?:AS\s+)?(\w+)\s*$/)
+            if (aliasMatch) aliasToTable.set(aliasMatch[1], base)
           }
         })
       }
     }
-    
-    // Extract columns from WHERE
-    const whereMatch = sql.match(/\bWHERE\s+(.*?)(?:\bGROUP|\bORDER|\bHAVING|\bFETCH|\bROWNUM|$)/i)
-    if (whereMatch) {
-      const whereClause = whereMatch[1]
-      
-      // Extract columns with table prefix
-      const tableColumnRefs = whereClause.match(/(\w+)\.(\w+)/g) || []
-      tableColumnRefs.forEach(ref => {
-        const [tablePrefix, columnName] = ref.split('.')
-        for (const [tableName, tableInfo] of tables.entries()) {
-          if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
-            tableInfo.columns.add(columnName)
-            tableInfo.conditions++
-            indexSuggestions.push({
-              table: tableName,
-              columns: [columnName],
-              reason: 'Used in WHERE predicate',
-              type: 'btree'
-            })
-          }
-        }
-      })
-      
-      // Extract columns without table prefix (e.g., salary > 5000, job_id = 'IT_PROG')
-      // First, remove all table.column patterns to avoid duplicates
-      const whereWithoutTablePrefix = whereClause.replace(/(\w+)\.(\w+)/g, '')
-      
-      const columnPatterns = [
-        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+/g,  // column =, >, <, !=
-        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+IN\s*\(/gi,  // column IN (
-        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+LIKE\s+/gi,  // column LIKE
-        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+BETWEEN\s+/gi,  // column BETWEEN
-        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+IS\s+(?:NOT\s+)?NULL/gi,  // column IS NULL
-      ]
-      
-      const foundColumns = new Set<string>()
-      columnPatterns.forEach(pattern => {
-        let match
-        while ((match = pattern.exec(whereWithoutTablePrefix)) !== null) {
-          const colName = match[1]
-          if (colName && !foundColumns.has(colName.toLowerCase())) {
-            foundColumns.add(colName.toLowerCase())
-            // Skip SQL keywords
-            if (!/^(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|EXISTS|SELECT|FROM|WHERE)$/i.test(colName)) {
-              // Add to all tables (or single table if only one)
-              if (tables.size === 1) {
-                const table = Array.from(tables.values())[0]
-                table.columns.add(colName)
-                table.conditions++
-                indexSuggestions.push({
-                  table: table.name,
-                  columns: [colName],
-                  reason: 'Used in WHERE predicate',
-                  type: 'btree'
-                })
-              } else {
-                // Multiple tables - add to all (ambiguous)
-                Array.from(tables.values()).forEach(table => {
-                  table.columns.add(colName)
-                  table.conditions++
-                })
-              }
-            }
-          }
-        }
-      })
-    }
-    
-    // Extract columns from JOIN ON
-    const joinOnPattern = /\bJOIN\s+[\w.]+\s+ON\s+([^JOIN]+?)(?=\b(?:JOIN|WHERE|GROUP|ORDER|HAVING|$))/gi
-    let joinOnMatch
-    while ((joinOnMatch = joinOnPattern.exec(sql)) !== null) {
-      const onClause = joinOnMatch[1]
-      const columnRefs = onClause.match(/(\w+)\.(\w+)/g) || []
-      columnRefs.forEach(ref => {
-        const [tablePrefix, columnName] = ref.split('.')
-        for (const [tableName, tableInfo] of tables.entries()) {
-          if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
-            tableInfo.columns.add(columnName)
-            indexSuggestions.push({
-              table: tableName,
-              columns: [columnName],
-              reason: 'Used in JOIN condition',
-              type: 'btree'
-            })
-          }
-        }
-      })
-    }
-    
-    // Extract columns from ORDER BY
-    const orderByMatch = sql.match(/\bORDER\s+BY\s+(.*?)(?:\bFETCH|\bROWNUM|$)/i)
-    if (orderByMatch) {
-      const orderClause = orderByMatch[1].trim()
-      
-      // Extract columns with table prefix
-      const orderColumns = orderClause.match(/(\w+)\.(\w+)/g) || []
-      orderColumns.forEach(ref => {
-        const [tablePrefix, columnName] = ref.split('.')
-        for (const [tableName, tableInfo] of tables.entries()) {
-          if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
-            tableInfo.columns.add(columnName)
-            indexSuggestions.push({
-              table: tableName,
-              columns: [columnName],
-              reason: 'Used in ORDER BY',
-              type: 'btree'
-            })
-          }
-        }
-      })
-      
-      // Extract columns without table prefix (e.g., ORDER BY salary DESC)
-      const orderColsWithoutPrefix = orderClause.split(',').map(col => {
-        const clean = col.replace(/\b(ASC|DESC)\b/gi, '').trim()
-        const match = clean.match(/^([a-zA-Z_][a-zA-Z0-9_]*)$/)
-        return match ? match[1] : null
-      }).filter(col => col && !/(\w+)\.(\w+)/.test(orderClause))
-      
-      orderColsWithoutPrefix.forEach(colName => {
-        if (colName && !/^(ASC|DESC|NULLS|FIRST|LAST)$/i.test(colName)) {
-          // Add to all tables (or single table if only one)
-          if (tables.size === 1) {
-            const table = Array.from(tables.values())[0]
-            table.columns.add(colName)
-            indexSuggestions.push({
-              table: table.name,
-              columns: [colName],
-              reason: 'Used in ORDER BY',
-              type: 'btree'
-            })
-          } else {
-            // Multiple tables - add to all (ambiguous)
-            Array.from(tables.values()).forEach(table => {
-              table.columns.add(colName)
-            })
-          }
-        }
-      })
-    }
-    
-    // Calculate complexity score
-    let complexityScore = 1
-    complexityScore += Math.min(tables.size, 5) * 0.5
-    complexityScore += Math.min(joinCount, 5) * 0.3
-    complexityScore += Math.min(subqueryCount, 3) * 0.5
-    complexityScore += cteCount * 0.2
-    complexityScore = Math.min(Math.round(complexityScore * 10) / 10, 10)
-    
-    // ========== BUILD OUTPUT - START WITH TABLES & COLUMNS ==========
-    results.push('═══════════════════════════════════════')
-    results.push('  ORACLE SQL ADVANCED ANALYZER')
-    results.push('═══════════════════════════════════════')
-    results.push('')
-    
-    // ========== TABLES & COLUMNS SUMMARY (AT TOP) ==========
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('TABLES & COLUMNS SUMMARY')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('')
-    
-    if (tables.size === 0) {
-      results.push('No tables detected in SQL query.')
-      results.push('')
-    } else {
-      // All tables used
-      results.push(`TABLES USED (${tables.size}):`)
-      let tableIdx = 1
-      for (const [tableName, tableInfo] of tables.entries()) {
-        results.push(`  ${tableIdx}. ${tableName}${tableInfo.alias ? ` (alias: ${tableInfo.alias})` : ''}`)
-        tableIdx++
-      }
-      results.push('')
-      
-      // All columns used (grouped by table)
-      results.push('COLUMNS USED BY TABLE:')
-      for (const [tableName, tableInfo] of tables.entries()) {
-        if (tableInfo.columns.size > 0) {
-          const cols = Array.from(tableInfo.columns).sort()
-          results.push(`  ${tableName}${tableInfo.alias ? ` (${tableInfo.alias})` : ''}:`)
-          results.push(`    ${cols.join(', ')}`)
-          results.push(`    Total: ${tableInfo.columns.size} columns`)
-        } else {
-          results.push(`  ${tableName}${tableInfo.alias ? ` (${tableInfo.alias})` : ''}: (no columns explicitly referenced)`)
-        }
-        results.push('')
-      }
-      
-      // All unique columns (flattened list)
-      const allColumns = new Set<string>()
-      tables.forEach(tableInfo => {
-        tableInfo.columns.forEach(col => allColumns.add(col))
-      })
-      if (allColumns.size > 0) {
-        results.push(`ALL COLUMNS REFERENCED (${allColumns.size} unique):`)
-        const sortedCols = Array.from(allColumns).sort()
-        results.push(`  ${sortedCols.join(', ')}`)
-        results.push('')
-      }
-    }
-    
-    // ========== A. SQL PARSING & STRUCTURE ANALYSIS ==========
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('A. STRUCTURE ANALYSIS')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    
-    results.push(`Tables: ${tables.size}`)
-    results.push(`JOINs: ${joinCount} (INNER: ${innerJoinCount}, LEFT: ${leftJoinCount})`)
-    results.push(`Subqueries: ${subqueryCount}`)
-    results.push(`CTEs (WITH): ${cteCount}`)
-    results.push(`Inline Views: ${inlineViewCount}`)
-    results.push(`Complexity Score: ${complexityScore}/10`)
-    results.push('')
-    
-    // Detailed table information
-    if (tables.size > 0) {
-      results.push('TABLE DETAILS:')
-      let idx = 1
-      for (const [tableName, tableInfo] of tables.entries()) {
-        results.push(`  ${idx}. ${tableName}${tableInfo.alias ? ` (alias: ${tableInfo.alias})` : ''}`)
-        results.push(`     Usage: ${tableInfo.usage.join(', ')}`)
-        results.push(`     Columns: ${tableInfo.columns.size}`)
-        if (tableInfo.columns.size > 0) {
-          const cols = Array.from(tableInfo.columns).sort()
-          results.push(`     - ${cols.join(', ')}`)
-        }
-        results.push(`     Conditions: ${tableInfo.conditions}`)
-        results.push('')
-        idx++
-      }
-    }
-    
-    // ========== B. PERFORMANCE ANTI-PATTERNS ==========
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('B. PERFORMANCE ANTI-PATTERNS')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    
-    // Functions on indexed columns
-    const truncOnDate = sql.match(/\bTRUNC\s*\([^)]*\)/gi)
-    if (truncOnDate) {
-      issues.push({
-        type: 'error',
-        message: `TRUNC() function on date column detected (${truncOnDate.length}x). This prevents index usage.`
-      })
-    }
-    
-    const nvlOnCol = sql.match(/\bNVL\s*\([^,)]+,\s*[^)]+\)/gi)
-    if (nvlOnCol && nvlOnCol.length > 3) {
-      issues.push({
-        type: 'warning',
-        message: `Multiple NVL() functions detected (${nvlOnCol.length}x). Consider COALESCE or handle NULLs in application.`
-      })
-    }
-    
-    const toCharOnDate = sql.match(/\bTO_CHAR\s*\([^,)]+,\s*['"][^'"]+['"]\s*\)/gi)
-    if (toCharOnDate) {
-      issues.push({
-        type: 'error',
-        message: `TO_CHAR() on date column detected (${toCharOnDate.length}x). This prevents index usage.`
-      })
-    }
-    
-    // LEFT JOIN filtered in WHERE
-    if (leftJoinCount > 0) {
-      const leftJoinWhere = sql.match(/\bLEFT\s+JOIN[^WHERE]+WHERE[^=]+=\s*NULL/gi)
-      if (leftJoinWhere) {
-        issues.push({
-          type: 'warning',
-          message: 'LEFT JOIN result filtered in WHERE clause. Move filter to ON clause.'
-        })
-      }
-    }
-    
-    // Missing join predicates
-    const crossJoins = (sql.match(/\bCROSS\s+JOIN\b/gi) || []).length
-    if (crossJoins > 0) {
-      issues.push({
-        type: 'error',
-        message: `CROSS JOIN detected (${crossJoins}x). Verify this is intentional (Cartesian product).`
-      })
-    }
-    
-    // Excessive OR conditions
-    const orCount = (sql.match(/\bOR\b/gi) || []).length
-    if (orCount > 5) {
-      issues.push({
-        type: 'warning',
-        message: `Excessive OR conditions (${orCount}). Consider UNION ALL or IN clause.`
-      })
-    }
-    
-    // LIKE '%value' patterns
-    const likeWildcardStart = sql.match(/\bLIKE\s+['"]%[^'"]+['"]/gi)
-    if (likeWildcardStart) {
-      issues.push({
-        type: 'error',
-        message: `LIKE pattern starting with % detected (${likeWildcardStart.length}x). This prevents index usage.`
-      })
-    }
-    
-    // ========== C. ORACLE SQL SMELLS ==========
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('C. ORACLE SQL SMELLS')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    
-    // ROWNUM misuse
-    const rownumUsage = (sql.match(/\bROWNUM\b/gi) || []).length
-    if (rownumUsage > 0) {
-      issues.push({
-        type: 'suggestion',
-        message: `ROWNUM detected (${rownumUsage}x). Consider FETCH FIRST n ROWS ONLY (Oracle 12c+).`
-      })
-    }
-    
-    // Missing FETCH FIRST
-    const hasOrderBy = /\bORDER\s+BY\b/gi.test(sql)
-    const hasFetchFirst = /\bFETCH\s+FIRST\b/gi.test(sql)
-    if (hasOrderBy && !hasFetchFirst && rownumUsage === 0) {
-      issues.push({
-        type: 'info',
-        message: 'ORDER BY without FETCH FIRST. Consider limiting result set if only top N rows needed.'
-      })
-    }
-    
-    // Correlated subqueries
-    const correlatedSubquery = sql.match(/\bEXISTS\s*\(\s*SELECT[^)]+\b\w+\.\w+\s*=\s*\w+\.\w+/gi)
-    if (correlatedSubquery) {
-      issues.push({
-        type: 'warning',
-        message: 'Correlated subquery detected. Consider rewriting as JOIN for better performance.'
-      })
-    }
-    
-    // HAVING used instead of WHERE
-    const havingWithoutGroup = sql.match(/\bHAVING\b/gi) && !/\bGROUP\s+BY\b/gi.test(sql)
-    if (havingWithoutGroup) {
-      issues.push({
-        type: 'error',
-        message: 'HAVING clause without GROUP BY. Move condition to WHERE clause.'
-      })
-    }
-    
-    // Redundant DISTINCT
-    const distinctCount = (sql.match(/\bDISTINCT\b/gi) || []).length
-    if (distinctCount > 1) {
-      issues.push({
-        type: 'warning',
-        message: `Multiple DISTINCT keywords detected (${distinctCount}). Verify if all are necessary.`
-      })
-    }
-    
-    // Hardcoded literals
-    const hardcodedIds = sql.match(/\b(?:WHERE|AND|OR)\s+\w+\s*=\s*\d{4,}/gi)
-    if (hardcodedIds && hardcodedIds.length > 3) {
-      issues.push({
-        type: 'warning',
-        message: `Multiple hardcoded numeric literals detected (${hardcodedIds.length}). Consider bind variables.`
-      })
-    }
-    
-    // ========== D. INDEX SUGGESTIONS ==========
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('D. INDEX SUGGESTIONS')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    
-    // Group index suggestions by table
-    const indexByTable = new Map<string, IndexSuggestion[]>()
-    indexSuggestions.forEach(suggestion => {
-      if (!indexByTable.has(suggestion.table)) {
-        indexByTable.set(suggestion.table, [])
-      }
-      indexByTable.get(suggestion.table)!.push(suggestion)
-    })
-    
-    if (indexByTable.size > 0) {
-      indexByTable.forEach((suggestions, table) => {
-        results.push(`Table: ${table}`)
-        const uniqueColumns = new Set<string>()
-        suggestions.forEach(s => s.columns.forEach(c => uniqueColumns.add(c)))
-        const cols = Array.from(uniqueColumns)
-        results.push(`  Suggested Index: CREATE INDEX idx_${table}_${cols.join('_')} ON ${table} (${cols.join(', ')});`)
-        results.push(`  Reason: ${suggestions[0].reason}`)
-        results.push('')
-      })
-    } else {
-      results.push('No index suggestions (no WHERE/JOIN/ORDER BY columns detected)')
-      results.push('')
-    }
-    
-    // ========== E. REWRITE SUGGESTIONS ==========
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('E. REWRITE SUGGESTIONS')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    
-    if (oldStyleJoins > 0) {
-      results.push('• Convert old-style joins (+) to ANSI JOIN syntax')
-    }
-    if (rownumUsage > 0) {
-      results.push('• Replace ROWNUM with FETCH FIRST n ROWS ONLY')
-    }
-    if (correlatedSubquery) {
-      results.push('• Rewrite correlated subquery as JOIN')
-    }
-    if (nvlOnCol && nvlOnCol.length > 0) {
-      results.push('• Replace NVL() with COALESCE() for ANSI compatibility')
-    }
-    if (inlineViewCount > 0) {
-      results.push('• Consider converting inline views to CTEs (WITH clause)')
-    }
-    if (issues.length === 0) {
-      results.push('No rewrite suggestions')
-    }
-    results.push('')
-    
-    // ========== F. SECURITY & MAINTAINABILITY ==========
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    results.push('F. SECURITY & MAINTAINABILITY')
-    results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    
-    // Missing bind variables
-    const stringLiterals = sql.match(/['"][^'"]+['"]/g)
-    const numericLiterals = sql.match(/\b\d+\b/g)
-    const totalLiterals = (stringLiterals?.length || 0) + (numericLiterals?.length || 0)
-    if (totalLiterals > 5) {
-      issues.push({
-        type: 'warning',
-        message: `Multiple hardcoded literals detected (${totalLiterals}). Use bind variables to prevent SQL injection and improve plan reuse.`
-      })
-    }
-    
-    // SQL injection patterns
-    const concatPattern = sql.match(/\|\|/g)
-    if (concatPattern && stringLiterals && stringLiterals.length > 3) {
-      issues.push({
-        type: 'error',
-        message: 'String concatenation with literals detected. High risk of SQL injection. Use bind variables.'
-      })
-    }
-    
-    // Unclear column qualification
-    const unqualifiedColumns = sql.match(/\b(?:WHERE|SELECT|ORDER|GROUP)\s+([a-z_][a-z0-9_]*)\s*[=,]/gi)
-    if (unqualifiedColumns && unqualifiedColumns.length > tables.size * 2) {
-      issues.push({
-        type: 'info',
-        message: 'Some columns may be unqualified. Consider using table aliases for clarity.'
-      })
-    }
-    
-    // ========== ISSUES SUMMARY ==========
-    if (issues.length > 0) {
-      results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-      results.push('ISSUES & WARNINGS')
-      results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-      
-      const errors = issues.filter(i => i.type === 'error')
-      const warnings = issues.filter(i => i.type === 'warning')
-      const suggestions = issues.filter(i => i.type === 'suggestion')
-      const info = issues.filter(i => i.type === 'info')
-      
-      if (errors.length > 0) {
-        results.push(`❌ ERRORS (${errors.length}):`)
-        errors.forEach(issue => results.push(`   • ${issue.message}`))
-        results.push('')
-      }
-      
-      if (warnings.length > 0) {
-        results.push(`⚠️  WARNINGS (${warnings.length}):`)
-        warnings.forEach(issue => results.push(`   • ${issue.message}`))
-        results.push('')
-      }
-      
-      if (suggestions.length > 0) {
-        results.push(`💡 SUGGESTIONS (${suggestions.length}):`)
-        suggestions.forEach(issue => results.push(`   • ${issue.message}`))
-        results.push('')
-      }
-      
-      if (info.length > 0) {
-        results.push(`ℹ️  INFO (${info.length}):`)
-        info.forEach(issue => results.push(`   • ${issue.message}`))
-        results.push('')
-      }
-    } else {
-      results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-      results.push('✅ No issues detected!')
-      results.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    }
-    
-    setOutput(results.join('\n'))
+
+    return { tables, aliasToTable }
   }
 
-  function parseColumns(selectClause: string): string[] {
-    const columns: string[] = []
+  /** Split by delimiter only at top level (ignoring parentheses) */
+  function splitTopLevel(text: string, delim: string): string[] {
+    const result: string[] = []
     let current = ''
     let depth = 0
-    let inString = false
-    let stringChar = ''
-    
-    for (let i = 0; i < selectClause.length; i++) {
-      const char = selectClause[i]
-      
-      if ((char === '"' || char === "'" || char === '`') && (i === 0 || selectClause[i - 1] !== '\\')) {
-        if (!inString) {
-          inString = true
-          stringChar = char
-        } else if (char === stringChar) {
-          inString = false
+    let i = 0
+    while (i < text.length) {
+      const c = text[i]
+      if (c === '(') depth++
+      else if (c === ')') depth--
+      else if (depth === 0 && text.substring(i, i + delim.length) === delim) {
+        result.push(current.trim())
+        current = ''
+        i += delim.length
+        continue
+      }
+      current += c
+      i++
+    }
+    if (current.trim()) result.push(current.trim())
+    return result
+  }
+
+  /** Extract column references from a clause; return unique column names (optionally with table/alias prefix for grouping) */
+  function extractColumnRefsFromClause(
+    clause: string,
+    aliasToTable: Map<string, string>,
+    tableList: string[]
+  ): Array<{ table: string | null; column: string }> {
+    const refs: Array<{ table: string | null; column: string }> = []
+    const seen = new Set<string>()
+
+    // schema.table.column or alias.column or table.column
+    const qualifiedRegex = /\b([\w.]+)\.(\w+)\b/g
+    let m
+    while ((m = qualifiedRegex.exec(clause)) !== null) {
+      const left = m[1]
+      const col = m[2]
+      if (isLiteralOrBind(col)) continue
+      const key = `${left}.${col}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const base = left.includes('.') ? left.split('.').pop()! : left
+      const table = aliasToTable.get(base) ?? (tableList.includes(base) ? base : null)
+      refs.push({ table, column: col })
+    }
+
+    // Unqualified column: word that is not keyword, not literal, not in "table.column" (already matched)
+    const skipPattern = /\b([\w.]+)\.(\w+)\b/g
+    let withoutQualified = clause
+    while ((m = skipPattern.exec(clause)) !== null) {
+      withoutQualified = withoutQualified.replace(m[0], ' ')
+    }
+    const wordPattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g
+    while ((m = wordPattern.exec(withoutQualified)) !== null) {
+      const col = m[1]
+      if (SQL_KEYWORDS.has(col.toUpperCase())) continue
+      if (isLiteralOrBind(col)) continue
+      if (seen.has(col)) continue
+      // Only accept if it looks like a column in a predicate/list (e.g. "salary >", "job_id =", "first_name,")
+      const idx = m.index
+      const after = withoutQualified.slice(idx + col.length, idx + col.length + 20)
+      if (!/^[\s]*[=<>!]|^[\s]*,|^[\s]+(?:ASC|DESC|NULLS)/i.test(after) && !/^[\s]*\s+(?:IN|LIKE|BETWEEN|IS)/i.test(after)) continue
+      seen.add(col)
+      refs.push({ table: tableList.length === 1 ? tableList[0] : null, column: col })
+    }
+
+    return refs
+  }
+
+  /** Gather all columns from SELECT, WHERE, ON, ORDER BY, GROUP BY, HAVING */
+  function extractColumns(
+    sql: string,
+    tables: string[],
+    aliasToTable: Map<string, string>
+  ): Map<string, Set<string>> {
+    const byTable = new Map<string, Set<string>>()
+    tables.forEach(t => byTable.set(t, new Set()))
+
+    function addColumn(table: string | null, column: string) {
+      if (table) {
+        byTable.get(table)?.add(column)
+      } else {
+        if (tables.length === 1) byTable.get(tables[0])?.add(column)
+        else tables.forEach(t => byTable.get(t)?.add(column))
+      }
+    }
+
+    // SELECT list
+    const selectMatch = sql.match(/\bSELECT\s+(.*?)\s+FROM/i)
+    if (selectMatch) {
+      const selectList = selectMatch[1]
+      const cols = splitTopLevel(selectList, ',')
+      cols.forEach(c => {
+        const clean = c.replace(/\s+AS\s+\w+$/i, '').trim()
+        if (clean === '*') {
+          tables.forEach(t => byTable.get(t)?.add('*'))
+          return
         }
-      } else if (!inString) {
-        if (char === '(') depth++
-        else if (char === ')') depth--
-        else if (char === ',' && depth === 0) {
-          columns.push(current.trim())
-          current = ''
-          continue
+        const qualified = clean.match(/(\w+)\.(\w+)/)
+        if (qualified) {
+          const tableOrAlias = qualified[1]
+          const col = qualified[2]
+          const table = aliasToTable.get(tableOrAlias) ?? (tables.includes(tableOrAlias) ? tableOrAlias : null)
+          addColumn(table, col)
+        } else {
+          const colMatch = clean.match(/^([a-zA-Z_][a-zA-Z0-9_]*)$/)
+          if (colMatch && !SQL_KEYWORDS.has(colMatch[1].toUpperCase())) addColumn(tables.length === 1 ? tables[0] : null, colMatch[1])
+        }
+      })
+    }
+
+    // WHERE
+    const whereMatch = sql.match(/\bWHERE\s+(.*?)(?=\bGROUP\b|\bORDER\b|\bHAVING\b|\bFETCH\b|\bROWNUM\b|$)/i)
+    if (whereMatch) {
+      const refs = extractColumnRefsFromClause(whereMatch[1], aliasToTable, tables)
+      refs.forEach(({ table, column }) => addColumn(table, column))
+    }
+
+    // JOIN ON
+    let onMatch: RegExpExecArray | null
+    const onPattern = /\bON\s+([^JOIN]+?)(?=\bJOIN\b|\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)/gi
+    while ((onMatch = onPattern.exec(sql)) !== null) {
+      const refs = extractColumnRefsFromClause(onMatch[1], aliasToTable, tables)
+      refs.forEach(({ table, column }) => addColumn(table, column))
+    }
+
+    // ORDER BY
+    const orderMatch = sql.match(/\bORDER\s+BY\s+(.*?)(?=\bFETCH\b|\bROWNUM\b|$)/i)
+    if (orderMatch) {
+      const parts = splitTopLevel(orderMatch[1], ',')
+      parts.forEach(p => {
+        const clean = p.replace(/\s+(?:ASC|DESC|NULLS\s+FIRST|NULLS\s+LAST)\s*$/i, '').trim()
+        const qualified = clean.match(/(\w+)\.(\w+)/)
+        if (qualified) {
+          const table = aliasToTable.get(qualified[1]) ?? (tables.includes(qualified[1]) ? qualified[1] : null)
+          addColumn(table, qualified[2])
+        } else if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(clean) && !SQL_KEYWORDS.has(clean.toUpperCase())) {
+          addColumn(tables.length === 1 ? tables[0] : null, clean)
+        }
+      })
+    }
+
+    // GROUP BY
+    const groupMatch = sql.match(/\bGROUP\s+BY\s+(.*?)(?=\bHAVING\b|\bORDER\b|$)/i)
+    if (groupMatch) {
+      const refs = extractColumnRefsFromClause(groupMatch[1], aliasToTable, tables)
+      refs.forEach(({ table, column }) => addColumn(table, column))
+    }
+
+    // HAVING
+    const havingMatch = sql.match(/\bHAVING\s+(.*?)(?=\bORDER\b|$)/i)
+    if (havingMatch) {
+      const refs = extractColumnRefsFromClause(havingMatch[1], aliasToTable, tables)
+      refs.forEach(({ table, column }) => addColumn(table, column))
+    }
+
+    return byTable
+  }
+
+  /** Extract conditions: WHERE and HAVING → FILTER; JOIN ON → JOIN. Format: left operator right */
+  function extractConditions(
+    sql: string,
+    aliasToTable: Map<string, string>
+  ): ParsedCondition[] {
+    const conditions: ParsedCondition[] = []
+
+    function parsePredicates(clause: string, type: 'FILTER' | 'JOIN') {
+      const parts = splitByAndOr(clause)
+      const opPatterns = [
+        /\s*(!=|<>|<=|>=|=|<|>)\s*/,
+        /\s+IN\s+/i,
+        /\s+LIKE\s+/i,
+        /\s+BETWEEN\s+/i,
+        /\s+IS\s+(?:NOT\s+)?NULL/i
+      ]
+      parts.forEach(pred => {
+        const trimmed = pred.trim()
+        if (!trimmed) return
+        let bestIdx = -1
+        let opStr = ''
+        let opLen = 0
+        for (const re of opPatterns) {
+          const m = trimmed.match(re)
+          if (m) {
+            const idx = trimmed.indexOf(m[0])
+            if (bestIdx < 0 || idx < bestIdx) {
+              bestIdx = idx
+              opStr = m[0].trim().toUpperCase()
+              opLen = m[0].length
+            }
+          }
+        }
+        if (bestIdx < 0) return
+        const left = trimmed.slice(0, bestIdx).trim()
+        const rest = trimmed.slice(bestIdx + opLen).trim()
+        if (isLiteralOrBind(left)) return
+        let right = rest
+        if (/^IN\s*\(/i.test(rest)) right = rest
+        else if (/^LIKE\s+/i.test(rest)) right = rest
+        else if (/^BETWEEN\s+/i.test(rest)) right = rest
+        else if (/^IS\s+(?:NOT\s+)?NULL/i.test(rest)) right = rest
+        else right = rest.split(/\s+(?:AND|OR)\s+/i)[0]?.trim() ?? rest
+        conditions.push({
+          left: left.replace(/\s+/g, ' '),
+          operator: opStr,
+          right: right.replace(/\s+/g, ' ').slice(0, 80),
+          type
+        })
+      })
+    }
+
+    function splitByAndOr(clause: string): string[] {
+      const result: string[] = []
+      let current = ''
+      let depth = 0
+      for (let i = 0; i < clause.length; i++) {
+        const c = clause[i]
+        if (c === '(') depth++
+        else if (c === ')') depth--
+        else if (depth === 0 && /\b(AND|OR)\b/i.test(clause.slice(i))) {
+          const match = clause.slice(i).match(/^\s*(AND|OR)\s+/i)
+          if (match) {
+            result.push(current.trim())
+            current = ''
+            i += match[0].length - 1
+            continue
+          }
+        }
+        current += c
+      }
+      if (current.trim()) result.push(current.trim())
+      return result
+    }
+
+    const whereMatch = sql.match(/\bWHERE\s+(.*?)(?=\bGROUP\b|\bORDER\b|\bHAVING\b|\bFETCH\b|\bROWNUM\b|$)/i)
+    if (whereMatch) parsePredicates(whereMatch[1], 'FILTER')
+
+    const havingMatch = sql.match(/\bHAVING\s+(.*?)(?=\bORDER\b|$)/i)
+    if (havingMatch) parsePredicates(havingMatch[1], 'FILTER')
+
+    let onCondMatch: RegExpExecArray | null
+    const onRegex = /\bON\s+([^JOIN]+?)(?=\bJOIN\b|\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)/gi
+    while ((onCondMatch = onRegex.exec(sql)) !== null) parsePredicates(onCondMatch[1], 'JOIN')
+
+    return conditions
+  }
+
+  /** Extract ANSI joins and old-style Oracle (+) joins */
+  function extractJoins(sql: string, tables: string[], aliasToTable: Map<string, string>): ParsedJoin[] {
+    const joins: ParsedJoin[] = []
+
+    // ANSI: FROM t1 [type] JOIN t2 ON ...
+    const ansiJoinRegex = /\b(?:FROM|JOIN)\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?\s+(INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?(?=\s+ON\s+)/gi
+    let m
+    const ansiMatches: Array<{ type: string; left: string; right: string; onClause: string }> = []
+    while ((m = ansiJoinRegex.exec(sql)) !== null) {
+      const leftRef = m[1]
+      const rightRef = m[4]
+      const joinType = (m[3] || 'JOIN').trim().replace(/\s+/, ' ')
+      const leftBase = baseTableName(leftRef)
+      const rightBase = baseTableName(rightRef)
+      const after = sql.slice(m.index + m[0].length)
+      const onMatch = after.match(/\s+ON\s+(.*?)(?=\bJOIN\b|\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)/i)
+      const onClause = onMatch ? onMatch[1].trim() : ''
+      ansiMatches.push({ type: joinType, left: leftBase, right: rightBase, onClause })
+    }
+
+    // Simpler: ... JOIN table ON condition
+    const simpleJoinRegex = /\b(INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+([^JOIN]+?)(?=\bJOIN\b|\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)/gi
+    let prevRight: string | null = null
+    while ((m = simpleJoinRegex.exec(sql)) !== null) {
+      const joinType = (m[1] || 'INNER JOIN').trim()
+      const rightBase = baseTableName(m[2])
+      const onClause = m[4].trim()
+      const leftBase = prevRight || (tables[0] ?? '')
+      joins.push({ joinType, leftTable: leftBase, rightTable: rightBase, condition: onClause })
+      prevRight = rightBase
+    }
+
+    if (joins.length === 0 && ansiMatches.length > 0) {
+      ansiMatches.forEach(({ type, left, right, onClause }) => {
+        joins.push({ joinType: type, leftTable: left, rightTable: right, condition: onClause })
+      })
+    }
+
+    // Old-style Oracle: WHERE a.col = b.col (+) or a.col (+) = b.col
+    if (joins.length === 0 && /\+/.test(sql)) {
+      const fromComma = sql.match(/\bFROM\s+([^WHERE]+)\s+WHERE/i)
+      if (fromComma) {
+        const tableList = splitTopLevel(fromComma[1], ',').map(p => baseTableName(p.replace(/\s+(?:AS\s+)?\w+\s*$/, '').trim()))
+        const whereClause = sql.match(/\bWHERE\s+(.+?)(?=\bGROUP\b|\bORDER\b|\bHAVING\b|$)/i)?.[1] ?? ''
+        const plusConditions = whereClause.split(/\bAND\b/i).filter(part => /\+/.test(part))
+        plusConditions.forEach(cond => {
+          const leftSide = cond.replace(/\s*\(\s*\+\s*\)\s*$/, '').trim()
+          const rightSide = cond.replace(/^.*?\(\s*\+\s*\)/, '').replace(/^[=<>]+\s*/, '').trim()
+          const leftTbl = leftSide.includes('.') ? leftSide.split('.')[0] : null
+          const rightTbl = rightSide.includes('.') ? rightSide.split('.')[0] : null
+          const t1 = leftTbl && tableList.includes(leftTbl) ? leftTbl : tableList[0]
+          const t2 = rightTbl && tableList.includes(rightTbl) ? rightTbl : tableList[1]
+          if (t1 && t2) joins.push({ joinType: 'OUTER JOIN (+)', leftTable: t1, rightTable: t2, condition: cond.trim() })
+        })
+      }
+    }
+
+    return joins
+  }
+
+  function analyzeOracleSQL(sql: string): string {
+    const lines: string[] = []
+
+    const { tables, aliasToTable } = extractTables(sql)
+    const columnsByTable = extractColumns(sql, tables, aliasToTable)
+    const conditions = extractConditions(sql, aliasToTable)
+    const joins = extractJoins(sql, tables, aliasToTable)
+
+    // --- Section 1: Tables Used ---
+    lines.push('TABLES USED')
+    lines.push('──────────')
+    if (tables.length === 0) {
+      lines.push('None')
+    } else {
+      tables.forEach((t, i) => lines.push(`${i + 1}. ${t}`))
+    }
+    lines.push('')
+
+    // --- Section 2: Columns Used ---
+    lines.push('COLUMNS USED')
+    lines.push('───────────')
+    if (tables.length === 0) {
+      lines.push('None')
+    } else {
+      for (const table of tables) {
+        const cols = columnsByTable.get(table)
+        const list = cols ? Array.from(cols).sort() : []
+        if (list.length === 0) {
+          lines.push(`${table}: (none detected)`)
+        } else {
+          lines.push(`${table}: ${list.join(', ')}`)
         }
       }
-      
-      current += char
+      const allCols = new Set<string>()
+      columnsByTable.forEach(s => s.forEach(c => allCols.add(c)))
+      if (allCols.size > 0) {
+        lines.push('')
+        lines.push(`All unique columns: ${Array.from(allCols).sort().join(', ')}`)
+      }
     }
-    if (current.trim()) columns.push(current.trim())
-    
-    return columns
+    lines.push('')
+
+    // --- Section 3: Conditions Used ---
+    lines.push('CONDITIONS USED')
+    lines.push('───────────────')
+    if (conditions.length === 0) {
+      lines.push('None')
+    } else {
+      conditions.forEach((c, i) => {
+        lines.push(`${i + 1}. [${c.type}] ${c.left} ${c.operator} ${c.right}`)
+      })
+      lines.push('')
+      const filterCount = conditions.filter(c => c.type === 'FILTER').length
+      const joinCount = conditions.filter(c => c.type === 'JOIN').length
+      lines.push(`Total: ${conditions.length} (FILTER: ${filterCount}, JOIN: ${joinCount})`)
+    }
+    lines.push('')
+
+    // --- Section 4: Joins ---
+    lines.push('JOINS')
+    lines.push('─────')
+    if (joins.length === 0) {
+      lines.push('None')
+    } else {
+      joins.forEach((j, i) => {
+        lines.push(`${i + 1}. ${j.joinType}: ${j.leftTable} ⋈ ${j.rightTable}`)
+        if (j.condition) lines.push(`   ON ${j.condition}`)
+      })
+    }
+
+    return lines.join('\n')
   }
 
   return (
     <ToolLayout
       title="Oracle SQL Advanced Analyzer"
-      description="Oracle-specific SQL analysis: structure, performance anti-patterns, index suggestions, EXPLAIN PLAN parsing, and security checks"
+      description="Static structural metadata: Tables Used, Columns Used, Conditions Used, Joins (Oracle SQL only)"
       input={input}
       output={output}
       onInputChange={setInput}
