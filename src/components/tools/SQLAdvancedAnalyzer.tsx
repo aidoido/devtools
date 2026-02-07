@@ -235,12 +235,35 @@ export default function SQLAdvancedAnalyzer() {
       if (selectClause !== '*') {
         const columns = parseColumns(selectClause)
         columns.forEach(col => {
-          const tableCol = col.match(/(\w+)\.(\w+)/)
+          // Remove AS alias and function calls
+          const cleanCol = col.replace(/\s+AS\s+\w+/i, '').replace(/^\w+\s*\(/, '').replace(/\)$/, '').trim()
+          
+          const tableCol = cleanCol.match(/(\w+)\.(\w+)/)
           if (tableCol) {
+            // Column with table prefix
             const [tablePrefix, columnName] = [tableCol[1], tableCol[2]]
             for (const [tableName, tableInfo] of tables.entries()) {
               if (tableName === tablePrefix || tableInfo.alias === tablePrefix) {
                 tableInfo.columns.add(columnName)
+              }
+            }
+          } else {
+            // Column without table prefix - extract column name
+            const colNameMatch = cleanCol.match(/^([a-zA-Z_][a-zA-Z0-9_]*)$/)
+            if (colNameMatch) {
+              const colName = colNameMatch[1]
+              // Skip SQL keywords
+              if (!/^(COUNT|SUM|AVG|MAX|MIN|DISTINCT|CASE|WHEN|THEN|ELSE|END|AS|SELECT|FROM|WHERE)$/i.test(colName)) {
+                // Add to all tables (or single table if only one)
+                if (tables.size === 1) {
+                  // Single table - add directly
+                  Array.from(tables.values())[0].columns.add(colName)
+                } else {
+                  // Multiple tables - add to all (ambiguous)
+                  Array.from(tables.values()).forEach(table => {
+                    table.columns.add(colName)
+                  })
+                }
               }
             }
           }
@@ -252,6 +275,8 @@ export default function SQLAdvancedAnalyzer() {
     const whereMatch = sql.match(/\bWHERE\s+(.*?)(?:\bGROUP|\bORDER|\bHAVING|\bFETCH|\bROWNUM|$)/i)
     if (whereMatch) {
       const whereClause = whereMatch[1]
+      
+      // Extract columns with table prefix
       const tableColumnRefs = whereClause.match(/(\w+)\.(\w+)/g) || []
       tableColumnRefs.forEach(ref => {
         const [tablePrefix, columnName] = ref.split('.')
@@ -265,6 +290,50 @@ export default function SQLAdvancedAnalyzer() {
               reason: 'Used in WHERE predicate',
               type: 'btree'
             })
+          }
+        }
+      })
+      
+      // Extract columns without table prefix (e.g., salary > 5000, job_id = 'IT_PROG')
+      // First, remove all table.column patterns to avoid duplicates
+      const whereWithoutTablePrefix = whereClause.replace(/(\w+)\.(\w+)/g, '')
+      
+      const columnPatterns = [
+        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+/g,  // column =, >, <, !=
+        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+IN\s*\(/gi,  // column IN (
+        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+LIKE\s+/gi,  // column LIKE
+        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+BETWEEN\s+/gi,  // column BETWEEN
+        /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+IS\s+(?:NOT\s+)?NULL/gi,  // column IS NULL
+      ]
+      
+      const foundColumns = new Set<string>()
+      columnPatterns.forEach(pattern => {
+        let match
+        while ((match = pattern.exec(whereWithoutTablePrefix)) !== null) {
+          const colName = match[1]
+          if (colName && !foundColumns.has(colName.toLowerCase())) {
+            foundColumns.add(colName.toLowerCase())
+            // Skip SQL keywords
+            if (!/^(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|EXISTS|SELECT|FROM|WHERE)$/i.test(colName)) {
+              // Add to all tables (or single table if only one)
+              if (tables.size === 1) {
+                const table = Array.from(tables.values())[0]
+                table.columns.add(colName)
+                table.conditions++
+                indexSuggestions.push({
+                  table: table.name,
+                  columns: [colName],
+                  reason: 'Used in WHERE predicate',
+                  type: 'btree'
+                })
+              } else {
+                // Multiple tables - add to all (ambiguous)
+                Array.from(tables.values()).forEach(table => {
+                  table.columns.add(colName)
+                  table.conditions++
+                })
+              }
+            }
           }
         }
       })
@@ -295,7 +364,9 @@ export default function SQLAdvancedAnalyzer() {
     // Extract columns from ORDER BY
     const orderByMatch = sql.match(/\bORDER\s+BY\s+(.*?)(?:\bFETCH|\bROWNUM|$)/i)
     if (orderByMatch) {
-      const orderClause = orderByMatch[1]
+      const orderClause = orderByMatch[1].trim()
+      
+      // Extract columns with table prefix
       const orderColumns = orderClause.match(/(\w+)\.(\w+)/g) || []
       orderColumns.forEach(ref => {
         const [tablePrefix, columnName] = ref.split('.')
@@ -307,6 +378,34 @@ export default function SQLAdvancedAnalyzer() {
               columns: [columnName],
               reason: 'Used in ORDER BY',
               type: 'btree'
+            })
+          }
+        }
+      })
+      
+      // Extract columns without table prefix (e.g., ORDER BY salary DESC)
+      const orderColsWithoutPrefix = orderClause.split(',').map(col => {
+        const clean = col.replace(/\b(ASC|DESC)\b/gi, '').trim()
+        const match = clean.match(/^([a-zA-Z_][a-zA-Z0-9_]*)$/)
+        return match ? match[1] : null
+      }).filter(col => col && !/(\w+)\.(\w+)/.test(orderClause))
+      
+      orderColsWithoutPrefix.forEach(colName => {
+        if (colName && !/^(ASC|DESC|NULLS|FIRST|LAST)$/i.test(colName)) {
+          // Add to all tables (or single table if only one)
+          if (tables.size === 1) {
+            const table = Array.from(tables.values())[0]
+            table.columns.add(colName)
+            indexSuggestions.push({
+              table: table.name,
+              columns: [colName],
+              reason: 'Used in ORDER BY',
+              type: 'btree'
+            })
+          } else {
+            // Multiple tables - add to all (ambiguous)
+            Array.from(tables.values()).forEach(table => {
+              table.columns.add(colName)
             })
           }
         }
