@@ -22,6 +22,8 @@ interface ParsedJoin {
   joinType: string
   leftTable: string
   rightTable: string
+  leftAlias?: string
+  rightAlias?: string
   condition: string
 }
 
@@ -66,27 +68,53 @@ export default function SQLAdvancedAnalyzer() {
   }
 
   /** Extract all table references (FROM + JOIN), unique by base name, with alias map */
-  function extractTables(sql: string): { tables: string[]; aliasToTable: Map<string, string> } {
+  function extractTables(sql: string): { tables: string[]; aliasToTable: Map<string, string>; fromHasComma: boolean } {
     const tables: string[] = []
     const seen = new Set<string>()
     const aliasToTable = new Map<string, string>()
+    let fromHasComma = false
 
-    // FROM clause: FROM table [alias] or FROM schema.table [alias]
-    const fromRegex = /\bFROM\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?(?=\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s*$)/gi
-    let m
-    while ((m = fromRegex.exec(sql)) !== null) {
-      const ref = m[1].trim()
-      const base = baseTableName(ref)
-      const alias = m[2] && !/^(JOIN|WHERE|GROUP|ORDER|HAVING|ON)$/i.test(m[2]) ? m[2] : null
-      if (!seen.has(base)) {
-        seen.add(base)
-        tables.push(base)
-      }
-      if (alias) aliasToTable.set(alias, base)
+    // FROM clause content (up to WHERE/GROUP/ORDER/HAVING)
+    const fromClauseMatch = sql.match(/\bFROM\s+(.+?)(?=\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|$)/i)
+    const fromClause = fromClauseMatch ? fromClauseMatch[1].trim() : ''
+
+    if (fromClause && splitTopLevel(fromClause, ',').length > 1) {
+      fromHasComma = true
+      const parts = splitTopLevel(fromClause, ',')
+      parts.forEach(p => {
+        const seg = p.trim()
+        if (!seg || /^\s*\(/.test(seg)) return
+        const refMatch = seg.match(/^\s*([\w.]+)(?:\s+(?:AS\s+)?(\w+))?\s*$/)
+        if (refMatch) {
+          const ref = refMatch[1].trim()
+          const alias = refMatch[2] && !/^(JOIN|WHERE|GROUP|ORDER|HAVING|ON)$/i.test(refMatch[2]) ? refMatch[2] : null
+          const base = baseTableName(ref)
+          if (!seen.has(base)) {
+            seen.add(base)
+            tables.push(base)
+          }
+          if (alias) aliasToTable.set(alias, base)
+        }
+      })
     }
 
-    // JOIN clauses: [type] JOIN table [alias]
+    if (!fromHasComma) {
+      const fromRegex = /\bFROM\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?(?=\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s*$)/gi
+      let m
+      while ((m = fromRegex.exec(sql)) !== null) {
+        const ref = m[1].trim()
+        const base = baseTableName(ref)
+        const alias = m[2] && !/^(JOIN|WHERE|GROUP|ORDER|HAVING|ON)$/i.test(m[2]) ? m[2] : null
+        if (!seen.has(base)) {
+          seen.add(base)
+          tables.push(base)
+        }
+        if (alias) aliasToTable.set(alias, base)
+      }
+    }
+
     const joinRegex = /\b(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?(?=\s+ON|\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s*$)/gi
+    let m
     while ((m = joinRegex.exec(sql)) !== null) {
       const ref = m[1].trim()
       const base = baseTableName(ref)
@@ -98,28 +126,7 @@ export default function SQLAdvancedAnalyzer() {
       if (alias) aliasToTable.set(alias, base)
     }
 
-    // Old-style Oracle: FROM a, b WHERE a.x = b.y (+)  → tables from comma list
-    const fromCommaMatch = sql.match(/\bFROM\s+([^WHERE]+?)(?=\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s*$)/i)
-    if (fromCommaMatch) {
-      const list = fromCommaMatch[1]
-      if (list.includes(',')) {
-        const parts = splitTopLevel(list, ',')
-        parts.forEach(p => {
-          const ref = p.replace(/\s+(?:AS\s+)?\w+\s*$/, '').trim()
-          if (ref && !/^\s*\(/.test(ref)) {
-            const base = baseTableName(ref)
-            if (!seen.has(base)) {
-              seen.add(base)
-              tables.push(base)
-            }
-            const aliasMatch = p.trim().match(/\s+(?:AS\s+)?(\w+)\s*$/)
-            if (aliasMatch) aliasToTable.set(aliasMatch[1], base)
-          }
-        })
-      }
-    }
-
-    return { tables, aliasToTable }
+    return { tables, aliasToTable, fromHasComma }
   }
 
   /** Split by delimiter only at top level (ignoring parentheses) */
@@ -306,14 +313,32 @@ export default function SQLAdvancedAnalyzer() {
     return byTable
   }
 
-  /** Extract conditions: WHERE and HAVING → FILTER; JOIN ON → JOIN. Format: left operator right */
+  /** Classify predicate as JOIN (alias1.col = alias2.col, different tables) or FILTER */
+  function classifyCondition(
+    left: string,
+    right: string,
+    aliasToTable: Map<string, string>
+  ): 'FILTER' | 'JOIN' {
+    const leftQual = left.match(/^(\w+)\.(\w+)$/)
+    const rightQual = right.match(/^(\w+)\.(\w+)$/)
+    if (leftQual && rightQual) {
+      const t1 = aliasToTable.get(leftQual[1]) ?? (aliasToTable.has(leftQual[1]) ? undefined : leftQual[1])
+      const t2 = aliasToTable.get(rightQual[1]) ?? (aliasToTable.has(rightQual[1]) ? undefined : rightQual[1])
+      const base1 = t1 ?? leftQual[1]
+      const base2 = t2 ?? rightQual[1]
+      if (base1 && base2 && base1 !== base2) return 'JOIN'
+    }
+    return 'FILTER'
+  }
+
+  /** Extract conditions: WHERE and HAVING → FILTER or JOIN by classification; JOIN ON → JOIN. */
   function extractConditions(
     sql: string,
-    _aliasToTable: Map<string, string>
+    aliasToTable: Map<string, string>
   ): ParsedCondition[] {
     const conditions: ParsedCondition[] = []
 
-    function parsePredicates(clause: string, type: 'FILTER' | 'JOIN') {
+    function parsePredicates(clause: string, defaultType: 'FILTER' | 'JOIN', classifyWhere?: boolean) {
       const raw = clause.trim()
       if (!raw) return
       const parts = splitByAndOr(clause)
@@ -334,14 +359,14 @@ export default function SQLAdvancedAnalyzer() {
         let opLen = 0
         let bestOrder = 999
         for (const { re, order } of opPatterns) {
-          const m = trimmed.match(re)
-          if (m) {
-            const idx = trimmed.indexOf(m[0])
+          const match = trimmed.match(re)
+          if (match) {
+            const idx = trimmed.indexOf(match[0])
             if (bestIdx < 0 || idx < bestIdx || (idx === bestIdx && order < bestOrder)) {
               bestIdx = idx
               bestOrder = order
-              opStr = m[0].trim().toUpperCase()
-              opLen = m[0].length
+              opStr = match[0].trim().toUpperCase()
+              opLen = match[0].length
             }
           }
         }
@@ -355,6 +380,7 @@ export default function SQLAdvancedAnalyzer() {
             else if (/^BETWEEN\s+/i.test(rest)) right = rest
             else if (/^IS\s+(?:NOT\s+)?NULL/i.test(rest)) right = rest
             else right = rest.split(/\s+(?:AND|OR)\s+/i)[0]?.trim() ?? rest
+            const type = classifyWhere ? classifyCondition(left, right, aliasToTable) : defaultType
             conditions.push({
               left: left.replace(/\s+/g, ' '),
               operator: opStr,
@@ -365,13 +391,12 @@ export default function SQLAdvancedAnalyzer() {
           }
         }
       })
-      // Never report zero when clause has content: add as single FILTER/JOIN condition if nothing parsed
       if (added === 0 && raw.length > 0) {
         conditions.push({
           left: raw.slice(0, 40).replace(/\s+/g, ' '),
           operator: '—',
           right: raw.length > 40 ? '…' : '',
-          type
+          type: defaultType
         })
       }
     }
@@ -400,20 +425,25 @@ export default function SQLAdvancedAnalyzer() {
     }
 
     const whereMatch = sql.match(/\bWHERE\s+(.*?)(?=\bGROUP\b|\bORDER\b|\bHAVING\b|\bFETCH\b|\bROWNUM\b|$)/i)
-    if (whereMatch) parsePredicates(whereMatch[1], 'FILTER')
+    if (whereMatch) parsePredicates(whereMatch[1], 'FILTER', true)
 
     const havingMatch = sql.match(/\bHAVING\s+(.*?)(?=\bORDER\b|$)/i)
-    if (havingMatch) parsePredicates(havingMatch[1], 'FILTER')
+    if (havingMatch) parsePredicates(havingMatch[1], 'FILTER', false)
 
     let onCondMatch: RegExpExecArray | null
     const onRegex = /\bON\s+([^JOIN]+?)(?=\bJOIN\b|\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)/gi
-    while ((onCondMatch = onRegex.exec(sql)) !== null) parsePredicates(onCondMatch[1], 'JOIN')
+    while ((onCondMatch = onRegex.exec(sql)) !== null) parsePredicates(onCondMatch[1], 'JOIN', false)
 
     return conditions
   }
 
-  /** Extract ANSI joins and old-style Oracle (+) joins */
-  function extractJoins(sql: string, tables: string[], _aliasToTable: Map<string, string>): ParsedJoin[] {
+  /** Extract ANSI joins, old-style (+) joins, and implicit (comma-FROM) joins */
+  function extractJoins(
+    sql: string,
+    tables: string[],
+    aliasToTable: Map<string, string>,
+    fromHasComma: boolean
+  ): ParsedJoin[] {
     const joins: ParsedJoin[] = []
 
     // ANSI: FROM t1 [type] JOIN t2 ON ...
@@ -432,7 +462,6 @@ export default function SQLAdvancedAnalyzer() {
       ansiMatches.push({ type: joinType, left: leftBase, right: rightBase, onClause })
     }
 
-    // Simpler: ... JOIN table ON condition
     const simpleJoinRegex = /\b(INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+([\w.$]+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+([^JOIN]+?)(?=\bJOIN\b|\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)/gi
     let prevRight: string | null = null
     while ((m = simpleJoinRegex.exec(sql)) !== null) {
@@ -450,7 +479,6 @@ export default function SQLAdvancedAnalyzer() {
       })
     }
 
-    // Old-style Oracle: WHERE a.col = b.col (+) or a.col (+) = b.col
     if (joins.length === 0 && /\+/.test(sql)) {
       const fromComma = sql.match(/\bFROM\s+([^WHERE]+)\s+WHERE/i)
       if (fromComma) {
@@ -469,16 +497,50 @@ export default function SQLAdvancedAnalyzer() {
       }
     }
 
+    // Implicit joins: FROM t1 a, t2 b, t3 c WHERE a.x = b.y AND b.z = c.w → synthesize [IMPLICIT] entries
+    if (joins.length === 0 && fromHasComma && aliasToTable.size > 0) {
+      const whereMatch = sql.match(/\bWHERE\s+(.*?)(?=\bGROUP\b|\bORDER\b|\bHAVING\b|\bFETCH\b|\bROWNUM\b|$)/i)
+      if (whereMatch) {
+        const whereClause = whereMatch[1]
+        const parts = splitByAndOr(whereClause)
+        const opRe = /\s*(!=|<>|<=|>=|=|<|>)\s*/
+        parts.forEach(pred => {
+          const trimmed = pred.trim()
+          if (!trimmed) return
+          const opMatch = trimmed.match(opRe)
+          if (!opMatch) return
+          const idx = trimmed.indexOf(opMatch[0])
+          const left = trimmed.slice(0, idx).trim()
+          const right = trimmed.slice(idx + opMatch[0].length).trim().split(/\s+(?:AND|OR)\s+/i)[0]?.trim() ?? ''
+          if (!/^\w+\.\w+$/.test(left) || !/^\w+\.\w+$/.test(right)) return
+          const t1 = aliasToTable.get(left.split('.')[0]) ?? left.split('.')[0]
+          const t2 = aliasToTable.get(right.split('.')[0]) ?? right.split('.')[0]
+          if (t1 && t2 && t1 !== t2) {
+            const leftAlias = left.split('.')[0]
+            const rightAlias = right.split('.')[0]
+            joins.push({
+              joinType: '[IMPLICIT] INNER JOIN',
+              leftTable: t1,
+              rightTable: t2,
+              leftAlias,
+              rightAlias,
+              condition: `${left} = ${right}`
+            })
+          }
+        })
+      }
+    }
+
     return joins
   }
 
   function analyzeOracleSQL(sql: string): string {
     const lines: string[] = []
 
-    const { tables, aliasToTable } = extractTables(sql)
+    const { tables, aliasToTable, fromHasComma } = extractTables(sql)
     const columnsByTable = extractColumns(sql, tables, aliasToTable)
     const conditions = extractConditions(sql, aliasToTable)
-    const joins = extractJoins(sql, tables, aliasToTable)
+    const joins = extractJoins(sql, tables, aliasToTable, fromHasComma)
 
     // --- Section 1: Tables Used ---
     lines.push('TABLES USED')
@@ -527,7 +589,9 @@ export default function SQLAdvancedAnalyzer() {
       lines.push('None')
     } else {
       joins.forEach((j, i) => {
-        lines.push(`${i + 1}. ${j.joinType}: ${j.leftTable} ⋈ ${j.rightTable}`)
+        const leftLabel = j.leftAlias != null ? `${j.leftTable}(${j.leftAlias})` : j.leftTable
+        const rightLabel = j.rightAlias != null ? `${j.rightTable}(${j.rightAlias})` : j.rightTable
+        lines.push(`${i + 1}. ${j.joinType}: ${leftLabel} ⋈ ${rightLabel}`)
         if (j.condition) lines.push(`   ON ${j.condition}`)
       })
     }
