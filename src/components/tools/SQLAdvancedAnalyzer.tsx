@@ -279,59 +279,101 @@ export default function SQLAdvancedAnalyzer() {
       refs.forEach(({ table, column }) => addColumn(table, column))
     }
 
+    // Analytic clauses: OVER (PARTITION BY ... ORDER BY ...)
+    const overStart = sql.search(/\bOVER\s*\(/gi)
+    if (overStart >= 0) {
+      let depth = 0
+      let end = -1
+      for (let i = sql.indexOf('(', overStart); i < sql.length; i++) {
+        if (sql[i] === '(') depth++
+        else if (sql[i] === ')') { depth--; if (depth === 0) { end = i; break } }
+      }
+      if (end > overStart) {
+        const overClause = sql.slice(overStart, end + 1)
+        const partitionByMatch = overClause.match(/\bPARTITION\s+BY\s+([^ORDER)]+?)(?=\s+ORDER|\s*\))/i)
+        if (partitionByMatch) {
+          const refs = extractColumnRefsFromClause(partitionByMatch[1], aliasToTable, tables)
+          refs.forEach(({ table, column }) => addColumn(table, column))
+        }
+        const orderByInOver = overClause.match(/\bORDER\s+BY\s+([^)]+?)\s*\)/i)
+        if (orderByInOver) {
+          const refs = extractColumnRefsFromClause(orderByInOver[1], aliasToTable, tables)
+          refs.forEach(({ table, column }) => addColumn(table, column))
+        }
+      }
+    }
+
     return byTable
   }
 
   /** Extract conditions: WHERE and HAVING → FILTER; JOIN ON → JOIN. Format: left operator right */
   function extractConditions(
     sql: string,
-    aliasToTable: Map<string, string>
+    _aliasToTable: Map<string, string>
   ): ParsedCondition[] {
     const conditions: ParsedCondition[] = []
 
     function parsePredicates(clause: string, type: 'FILTER' | 'JOIN') {
+      const raw = clause.trim()
+      if (!raw) return
       const parts = splitByAndOr(clause)
-      const opPatterns = [
-        /\s*(!=|<>|<=|>=|=|<|>)\s*/,
-        /\s+IN\s+/i,
-        /\s+LIKE\s+/i,
-        /\s+BETWEEN\s+/i,
-        /\s+IS\s+(?:NOT\s+)?NULL/i
+      const opPatterns: { re: RegExp; order: number }[] = [
+        { re: /\s*(!=|<>|<=|>=)\s*/, order: 0 },
+        { re: /\s*([=<>])\s*/, order: 1 },
+        { re: /\s+IN\s+/i, order: 2 },
+        { re: /\s+LIKE\s+/i, order: 3 },
+        { re: /\s+BETWEEN\s+/i, order: 4 },
+        { re: /\s+IS\s+(?:NOT\s+)?NULL/i, order: 5 }
       ]
+      let added = 0
       parts.forEach(pred => {
         const trimmed = pred.trim()
         if (!trimmed) return
         let bestIdx = -1
         let opStr = ''
         let opLen = 0
-        for (const re of opPatterns) {
+        let bestOrder = 999
+        for (const { re, order } of opPatterns) {
           const m = trimmed.match(re)
           if (m) {
             const idx = trimmed.indexOf(m[0])
-            if (bestIdx < 0 || idx < bestIdx) {
+            if (bestIdx < 0 || idx < bestIdx || (idx === bestIdx && order < bestOrder)) {
               bestIdx = idx
+              bestOrder = order
               opStr = m[0].trim().toUpperCase()
               opLen = m[0].length
             }
           }
         }
-        if (bestIdx < 0) return
-        const left = trimmed.slice(0, bestIdx).trim()
-        const rest = trimmed.slice(bestIdx + opLen).trim()
-        if (isLiteralOrBind(left)) return
-        let right = rest
-        if (/^IN\s*\(/i.test(rest)) right = rest
-        else if (/^LIKE\s+/i.test(rest)) right = rest
-        else if (/^BETWEEN\s+/i.test(rest)) right = rest
-        else if (/^IS\s+(?:NOT\s+)?NULL/i.test(rest)) right = rest
-        else right = rest.split(/\s+(?:AND|OR)\s+/i)[0]?.trim() ?? rest
+        if (bestIdx >= 0) {
+          const left = trimmed.slice(0, bestIdx).trim()
+          const rest = trimmed.slice(bestIdx + opLen).trim()
+          if (!isLiteralOrBind(left)) {
+            let right = rest
+            if (/^IN\s*\(/i.test(rest)) right = rest
+            else if (/^LIKE\s+/i.test(rest)) right = rest
+            else if (/^BETWEEN\s+/i.test(rest)) right = rest
+            else if (/^IS\s+(?:NOT\s+)?NULL/i.test(rest)) right = rest
+            else right = rest.split(/\s+(?:AND|OR)\s+/i)[0]?.trim() ?? rest
+            conditions.push({
+              left: left.replace(/\s+/g, ' '),
+              operator: opStr,
+              right: right.replace(/\s+/g, ' ').slice(0, 80),
+              type
+            })
+            added++
+          }
+        }
+      })
+      // Never report zero when clause has content: add as single FILTER/JOIN condition if nothing parsed
+      if (added === 0 && raw.length > 0) {
         conditions.push({
-          left: left.replace(/\s+/g, ' '),
-          operator: opStr,
-          right: right.replace(/\s+/g, ' ').slice(0, 80),
+          left: raw.slice(0, 40).replace(/\s+/g, ' '),
+          operator: '—',
+          right: raw.length > 40 ? '…' : '',
           type
         })
-      })
+      }
     }
 
     function splitByAndOr(clause: string): string[] {
@@ -371,7 +413,7 @@ export default function SQLAdvancedAnalyzer() {
   }
 
   /** Extract ANSI joins and old-style Oracle (+) joins */
-  function extractJoins(sql: string, tables: string[], aliasToTable: Map<string, string>): ParsedJoin[] {
+  function extractJoins(sql: string, tables: string[], _aliasToTable: Map<string, string>): ParsedJoin[] {
     const joins: ParsedJoin[] = []
 
     // ANSI: FROM t1 [type] JOIN t2 ON ...
@@ -463,12 +505,6 @@ export default function SQLAdvancedAnalyzer() {
           lines.push(`${table}: ${list.join(', ')}`)
         }
       }
-      const allCols = new Set<string>()
-      columnsByTable.forEach(s => s.forEach(c => allCols.add(c)))
-      if (allCols.size > 0) {
-        lines.push('')
-        lines.push(`All unique columns: ${Array.from(allCols).sort().join(', ')}`)
-      }
     }
     lines.push('')
 
@@ -481,10 +517,6 @@ export default function SQLAdvancedAnalyzer() {
       conditions.forEach((c, i) => {
         lines.push(`${i + 1}. [${c.type}] ${c.left} ${c.operator} ${c.right}`)
       })
-      lines.push('')
-      const filterCount = conditions.filter(c => c.type === 'FILTER').length
-      const joinCount = conditions.filter(c => c.type === 'JOIN').length
-      lines.push(`Total: ${conditions.length} (FILTER: ${filterCount}, JOIN: ${joinCount})`)
     }
     lines.push('')
 
